@@ -1,0 +1,8 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - christmasbaker-storage:/storage
+volumes:
+  christmasbaker-storage:

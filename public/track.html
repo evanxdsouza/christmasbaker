@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track your order · The Christmas Baker</title>
+<link rel="icon" href="/logo-wreath.png">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>body{display:grid;place-items:start center;padding:24px 16px}.wrap{width:min(560px,100%);text-align:center}.wrap img{width:220px;max-width:70%}.card{text-align:left;margin-top:8px}.step{min-width:70px;font-size:11px}</style></head>
+<body><div class="wrap">
+<img src="/logo-wreath.png" alt="The Christmas Baker">
+<div class="card" id="box">
+  <h2 style="text-align:center">Track your order</h2>
+  <p class="muted small" style="text-align:center">Enter the tracking code from your message, or your order number with the last 4 digits of your phone.</p>
+  <label>Tracking code or order number</label><input id="code" placeholder="e.g. K7M2QX or ORD-0012" style="margin-bottom:10px">
+  <label>Last 4 digits of phone (only needed with order number)</label><input id="phone" inputmode="numeric" maxlength="4" style="margin-bottom:14px">
+  <button class="btn primary" style="width:100%;justify-content:center" id="go">Track</button>
+  <div id="res"></div>
+</div></div>
+<script>
+const FLOW=['New','Confirmed','Baking','Ready','Out for delivery','Delivered'];
+const MSG={New:"We've received your order and will confirm shortly.",Confirmed:'Your order is confirmed — the oven is warming up!',Baking:'Your treats are being baked with love. 🍪',Ready:'Ready! Packed and waiting.',"Out for delivery":'On its way to you. 🚚',Delivered:'Delivered — enjoy, and Merry Christmas! 🎄',Cancelled:'This order was cancelled. Please contact us if this is unexpected.'};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function go(){
+  const c=document.getElementById('code').value.trim(), p=document.getElementById('phone').value.trim(), out=document.getElementById('res');
+  if(!c) return;
+  const r=await fetch('/api/track/'+encodeURIComponent(c)+'?phone='+encodeURIComponent(p));
+  if(!r.ok){out.innerHTML='<p style="color:var(--red);margin-top:14px">We couldn\'t find that order. Please check the code (and phone digits, if using an order number).</p>';return}
+  const o=await r.json(), idx=FLOW.indexOf(o.status);
+  const date=o.deliveryDate?new Date(o.deliveryDate+'T00:00').toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}):'';
+  out.innerHTML=`<hr><h3>Hi ${esc(o.customerName)}! Order ${esc(o.number)}</h3>
+  ${o.status==='Cancelled'?'<p><span class="chip grey">Cancelled</span></p>':`<div class="steps">${FLOW.map((s,i)=>`<div class="step ${i<idx?'done':i===idx?'done now':''}">${s}</div>`).join('')}</div>`}
+  <p><b>${esc(MSG[o.status]||o.status)}</b></p>
+  ${date?`<p class="muted">${esc(o.deliveryType)}: ${date}</p>`:''}
+  <p class="small muted">${o.items.map(i=>`${i.qty}× ${esc(i.description)}`).join('<br>')}</p>
+  <p class="small">Questions? ${o.business.phone?`Call/WhatsApp ${esc(o.business.phone)}`:''} ${o.business.instagram?`· Instagram ${esc(o.business.instagram)}`:''}</p>`;
+}
+document.getElementById('go').onclick=go;
+const q=new URLSearchParams(location.search).get('c'); if(q){document.getElementById('code').value=q;go()}
+</script></body></html>
