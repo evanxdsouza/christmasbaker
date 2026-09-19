@@ -2,7 +2,15 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # Published on loopback only: this is how Mangrove learns the service's port (3000).
+    ports:
+      - "127.0.0.1:3100:3000"
+    networks:
+      - mangrove-net
     volumes:
       - christmasbaker-storage:/storage
+networks:
+  mangrove-net:
+    external: true
 volumes:
   christmasbaker-storage:
