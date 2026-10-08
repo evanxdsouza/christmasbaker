@@ -6,6 +6,7 @@ const store = require('./db');
 const { renderInvoice, orderTotals } = require('./invoice');
 const Costing = require('./public/js/costing');
 const accounting = require('./accounting');
+const market = require('./marketprices');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -137,7 +138,28 @@ crud('products', {
   },
 });
 crud('customers');
-crud('ingredients', { prepare: (i) => { ['stock', 'reorder', 'cost'].forEach((k) => (i[k] = Number(i[k]) || 0)); }, after: recalcCosts });
+crud('ingredients', {
+  prepare: (i) => {
+    ['stock', 'reorder', 'cost'].forEach((k) => (i[k] = Number(i[k]) || 0));
+    i.marketCommodity = String(i.marketCommodity || '').trim();
+    i.marketMarkup = i.marketMarkup === '' || i.marketMarkup === null || i.marketMarkup === undefined ? '' : Number(i.marketMarkup) || 0;
+    if (!i.marketCommodity) delete i.market;
+  },
+  after: recalcCosts,
+});
+
+// ---- market prices (Agmarknet via data.gov.in) ---------------------------
+app.post('/api/market/update', async (req, res) => {
+  try {
+    const report = await market.update(db());
+    recalcCosts();
+    store.save();
+    res.json(report);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+market.schedule(store, recalcCosts);
 crud('expenses', { prepare: (e) => { e.amount = Number(e.amount) || 0; } });
 crud('assets');
 

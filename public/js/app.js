@@ -14,6 +14,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const cur = () => S.settings.currency || '₹';
 const money = (n) => cur() + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN');
+const unitPrice = (n) => cur() + (Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: Math.abs(n) < 1 ? 4 : 2 }); // per-gram prices are tiny
 const fdate = (d) => (d ? new Date(d.length === 10 ? d + 'T00:00' : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const today = () => new Date().toISOString().slice(0, 10);
 const totals = (o) => {
@@ -387,18 +388,47 @@ async function saveCustomer(id) {
 async function delCustomer(id) { if (confirmDo('Delete this customer? Their orders remain.')) { await api('DELETE', '/api/customers/' + id); closeModal(); await refresh(); } }
 
 // ---------- ingredients ----------
+// Agmarknet commodity names (must match exactly); the field also accepts any other name
+const MARKET_COMMODITIES = ['Wheat Atta', 'Maida Atta', 'Sugar', 'Jaggery(Gur)', 'Ghee', 'Butter', 'Egg', 'Rice', 'Suji(Rava)', 'Raisins', 'Cashewnuts', 'Almond(Badam)', 'Walnut', 'Dates', 'Copra', 'Coconut', 'Cardamoms', 'Cinnamon(Dalchini)', 'Cloves', 'Nutmeg', 'Dry Ginger', 'Black pepper', 'Groundnut Oil', 'Sunflower Oil'];
 function inventory() {
   setActions('<button class="btn primary" onclick="ingForm()">+ Add ingredient</button>');
-  $('#view').innerHTML = S.ingredients.length ? `<p class="muted small">Keep track of pantry stock. Ingredients at or below their reorder level are flagged on the dashboard.</p><div class="card table-wrap" style="padding:6px"><table><tr><th>Ingredient</th><th>In stock</th><th>Reorder at</th><th class="r">Cost / unit</th><th></th></tr>${S.ingredients.map((i) => `<tr><td><b>${esc(i.name)}</b> ${i.stock <= i.reorder ? '<span class="chip red">Low</span>' : ''}</td><td><button class="btn sm" onclick="bump('${i.id}',-1)">−</button> <b style="display:inline-block;min-width:56px;text-align:center">${i.stock} ${esc(i.unit)}</b> <button class="btn sm" onclick="bump('${i.id}',1)">+</button></td><td>${i.reorder} ${esc(i.unit)}</td><td class="r">${money(i.cost)} / ${esc(i.unit)}</td><td class="r"><button class="btn sm" onclick="ingForm('${i.id}')">Edit</button></td></tr>`).join('')}</table></div>` : empty('🧈', 'Add your ingredients to track stock.');
+  const s = S.settings, linked = S.ingredients.filter((i) => i.marketCommodity).length;
+  const priceCell = (i) => `${unitPrice(i.cost)} / ${esc(i.unit)}${i.market ? `<div class="small muted" title="Mandi ${money(i.market.perKg)}/kg + ${i.market.markup}% · ${esc(i.market.where)}">📈 market · ${fdate(i.market.date)}</div>` : i.marketCommodity ? '<div class="small muted">📈 waiting for update</div>' : ''}`;
+  const marketCard = `<div class="card" style="margin-bottom:16px"><h3>Market prices</h3>
+    <p class="muted small" style="margin:4px 0 12px">Pulls today's mandi prices from <a href="https://agmarknet.gov.in" target="_blank">Agmarknet</a> (via data.gov.in) for ingredients you link to a market item, adds your markup to get from wholesale to shop price, and updates recipe costs. Get a free API key by signing up at <a href="https://data.gov.in" target="_blank">data.gov.in</a> (My Account → API key).</p>
+    <div class="form" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+      ${field('data.gov.in API key', `<input id="m_marketApiKey" value="${esc(s.marketApiKey)}" autocomplete="off">`)}
+      ${field('Your state (blank = all India)', `<input id="m_marketState" value="${esc(s.marketState)}" placeholder="e.g. Goa">`)}
+      ${field('Markup over wholesale (%)', `<input id="m_marketMarkup" type="number" step="any" value="${s.marketMarkup ?? 25}">`)}
+      ${field('Update automatically', `<select id="m_marketAuto"><option value="1" ${s.marketAuto ? 'selected' : ''}>Daily</option><option value="0" ${s.marketAuto ? '' : 'selected'}>Only when I click</option></select>`)}
+    </div>
+    <div class="foot" style="margin-top:10px;align-items:center"><span class="small muted" style="margin-right:auto">${linked} ingredient${linked === 1 ? '' : 's'} linked${s.marketLastRun ? ` · last updated ${fdate(new Date(s.marketLastRun).toISOString())}` : ''}</span>
+      <button class="btn" onclick="saveMarket()">Save</button><button class="btn primary" onclick="saveMarket(true)">📈 Update prices now</button></div></div>`;
+  $('#view').innerHTML = marketCard + (S.ingredients.length ? `<p class="muted small">Keep track of pantry stock. Ingredients at or below their reorder level are flagged on the dashboard.</p><div class="card table-wrap" style="padding:6px"><table><tr><th>Ingredient</th><th>In stock</th><th>Reorder at</th><th class="r">Cost / unit</th><th></th></tr>${S.ingredients.map((i) => `<tr><td><b>${esc(i.name)}</b> ${i.stock <= i.reorder ? '<span class="chip red">Low</span>' : ''}</td><td><button class="btn sm" onclick="bump('${i.id}',-1)">−</button> <b style="display:inline-block;min-width:56px;text-align:center">${i.stock} ${esc(i.unit)}</b> <button class="btn sm" onclick="bump('${i.id}',1)">+</button></td><td>${i.reorder} ${esc(i.unit)}</td><td class="r">${priceCell(i)}</td><td class="r"><button class="btn sm" onclick="ingForm('${i.id}')">Edit</button></td></tr>`).join('')}</table></div>` : empty('🧈', 'Add your ingredients to track stock.'));
+}
+async function saveMarket(run) {
+  const b = { marketApiKey: $('#m_marketApiKey').value.trim(), marketState: $('#m_marketState').value.trim(), marketMarkup: +$('#m_marketMarkup').value || 0, marketAuto: $('#m_marketAuto').value === '1' };
+  S.settings = await api('PUT', '/api/settings', b);
+  if (!run) return toast('Saved');
+  toast('Fetching market prices…');
+  let report;
+  try { report = await api('POST', '/api/market/update'); } catch (e) { return toast(e.message); }
+  await refresh();
+  if (!report.length) return toast('No ingredients are linked to a market item yet — edit one to link it');
+  modal(`<h2>Market price update</h2><table><tr><th>Ingredient</th><th>Result</th></tr>${report.map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${r.ok ? `${unitPrice(r.cost)} <span class="small muted">(mandi ${money(r.perKg)}/kg + ${r.markup}% · ${esc(r.where)} · ${fdate(r.date)})</span>` : `<span style="color:var(--red)">${esc(r.msg)}</span>`}</td></tr>`).join('')}</table>
+  <p class="small muted">Recipe costs have been updated with the new prices.</p><div class="foot"><button class="btn primary" onclick="closeModal()">Done</button></div>`);
 }
 async function bump(id, d) { const i = S.ingredients.find((x) => x.id === id); await api('PUT', '/api/ingredients/' + id, { stock: Math.max(0, +(i.stock + d * (i.unit === 'ml' || i.unit === 'g' ? 100 : 1)).toFixed(2)) }); await loadAll(); inventory(); route(); }
 function ingForm(id) {
   const i = (id && S.ingredients.find((x) => x.id === id)) || { name: '', unit: 'kg', stock: 0, reorder: 0, cost: 0 };
-  modal(`<h2>${id ? 'Edit' : 'Add'} ingredient</h2><div class="form">${field('Name', `<input id="i_name" value="${esc(i.name)}">`)}${field('Unit', `<select id="i_unit">${['kg', 'g', 'l', 'ml', 'pcs', 'dozen'].map((u) => `<option ${u === i.unit ? 'selected' : ''}>${u}</option>`).join('')}</select>`)}${field('In stock', `<input id="i_stock" type="number" step="any" value="${i.stock}">`)}${field('Reorder level', `<input id="i_reorder" type="number" step="any" value="${i.reorder}">`)}${field('Cost per unit (e.g. price of 1 kg)', `<input id="i_cost" type="number" step="any" value="${i.cost}">`)}</div>
+  modal(`<h2>${id ? 'Edit' : 'Add'} ingredient</h2><div class="form">${field('Name', `<input id="i_name" value="${esc(i.name)}">`)}${field('Unit', `<select id="i_unit">${['kg', 'g', 'l', 'ml', 'pcs', 'dozen'].map((u) => `<option ${u === i.unit ? 'selected' : ''}>${u}</option>`).join('')}</select>`)}${field('In stock', `<input id="i_stock" type="number" step="any" value="${i.stock}">`)}${field('Reorder level', `<input id="i_reorder" type="number" step="any" value="${i.reorder}">`)}${field('Cost per unit (e.g. price of 1 kg)', `<input id="i_cost" type="number" step="any" value="${i.cost}">`)}
+    <div class="full"><hr style="margin:4px 0 12px"><b>Market price</b> <span class="small muted">— optional; overwrites the cost above on each update. Works for kg / g ingredients.</span></div>
+    ${field('Market item (Agmarknet name)', `<input id="i_marketCommodity" list="mkt" value="${esc(i.marketCommodity || '')}" placeholder="Leave blank to set price by hand"><datalist id="mkt">${MARKET_COMMODITIES.map((c) => `<option value="${c}">`).join('')}</datalist>`)}
+    ${field('Markup for this item (%) — blank uses default', `<input id="i_marketMarkup" type="number" step="any" value="${i.marketMarkup ?? ''}" placeholder="${S.settings.marketMarkup ?? 25}">`)}</div>
   <div class="foot">${id ? `<button class="btn danger" style="margin-right:auto" onclick="delIng('${id}')">Delete</button>` : ''}<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveIng('${id || ''}')">Save</button></div>`);
 }
 async function saveIng(id) {
-  const b = { name: $('#i_name').value.trim(), unit: $('#i_unit').value, stock: $('#i_stock').value, reorder: $('#i_reorder').value, cost: $('#i_cost').value };
+  const b = { name: $('#i_name').value.trim(), unit: $('#i_unit').value, stock: $('#i_stock').value, reorder: $('#i_reorder').value, cost: $('#i_cost').value, marketCommodity: $('#i_marketCommodity').value, marketMarkup: $('#i_marketMarkup').value };
   if (!b.name) return toast('Name required');
   id ? await api('PUT', '/api/ingredients/' + id, b) : await api('POST', '/api/ingredients', b);
   closeModal(); await refresh();

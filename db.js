@@ -22,6 +22,11 @@ const DEFAULTS = {
     labourRate: 150, // what an hour of your time is worth
     gasCylinderPrice: 900,
     gasCylinderHours: 40, // hours of oven/stove use one cylinder lasts
+    marketApiKey: '', // data.gov.in key for Agmarknet mandi prices
+    marketState: '',
+    marketMarkup: 25, // % added to wholesale mandi price to approximate shop price
+    marketAuto: true,
+    marketLastRun: 0,
   },
   products: [],
   customers: [],
