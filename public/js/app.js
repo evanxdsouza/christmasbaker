@@ -4,9 +4,9 @@ const FLOW = STATUSES.slice(0, 6);
 const STATUS_CHIP = { New: 'gold', Confirmed: '', Baking: 'gold', Ready: '', 'Out for delivery': 'gold', Delivered: '', Cancelled: 'grey' };
 const CATEGORIES = ['Cakes', 'Cookies', 'Pastries', 'Sweets', 'Gift Boxes', 'Savouries', 'Other'];
 const ASSET_TAGS = ['Logo', 'Product photo', 'Packaging', 'Social media', 'Invoice / documents', 'General'];
-const EXPENSE_CATS = ['Ingredients', 'Packaging', 'Delivery', 'Marketing', 'Equipment', 'Other'];
+const EXPENSE_CATS = ['Ingredients', 'Packaging', 'Delivery', 'Marketing', 'Gas & utilities', 'Equipment', 'Other'];
 
-const S = { settings: {}, products: [], orders: [], customers: [], assets: [], ingredients: [], expenses: [], ui: { orderView: 'list', orderFilter: 'open', q: '', cat: 'All', tag: 'All' } };
+const S = { settings: {}, products: [], orders: [], customers: [], assets: [], ingredients: [], expenses: [], ui: { orderView: 'list', orderFilter: 'open', q: '', cat: 'All', tag: 'All', acctView: 'summary', acctPeriod: 'all' } };
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -62,10 +62,12 @@ const ROUTES = [
   { id: 'dashboard', label: 'Dashboard', icon: '🎄', render: dashboard },
   { id: 'orders', label: 'Orders', icon: '🧾', render: orders, badge: () => S.orders.filter((o) => o.status === 'New').length },
   { id: 'products', label: 'Products', icon: '🍰', render: products },
+  { id: 'recipes', label: 'Recipes & costing', icon: '🥣', render: recipes },
   { id: 'assets', label: 'Assets', icon: '🖼️', render: assets },
   { id: 'customers', label: 'Customers', icon: '👥', render: customers },
   { id: 'inventory', label: 'Ingredients', icon: '🧈', render: inventory, badge: () => S.ingredients.filter((i) => i.stock <= i.reorder).length },
   { id: 'expenses', label: 'Expenses', icon: '💸', render: expenses },
+  { id: 'accounts', label: 'Accounts', icon: '📒', render: accounts },
   { id: 'settings', label: 'Settings', icon: '⚙️', render: settings },
 ];
 function route() {
@@ -292,8 +294,8 @@ function drawProductForm(ex) {
       <div style="width:90px;height:68px;border-radius:10px;background:var(--soft-green) center/cover;${p.image ? `background-image:url('${esc(p.image)}')` : ''}"></div>
       <input type="file" id="p_file" accept="image/*" style="flex:1">
       ${S.assets.some((a) => a.type.startsWith('image/')) ? '<button class="btn sm" onclick="pickAsset()">Pick from assets</button>' : ''}</div></div>
-    <div class="full variants"><label>Sizes / variants &amp; prices (cost = what it costs you to make, optional)</label>
-      ${p.variants.map((v, n) => `<div class="row"><input data-vn="${n}" data-k="label" placeholder="e.g. 750 g" value="${esc(v.label)}"><input data-vn="${n}" data-k="price" type="number" min="0" placeholder="Price" value="${v.price}"><input data-vn="${n}" data-k="cost" type="number" min="0" placeholder="Cost" value="${v.cost}"><button class="btn sm danger" onclick="pSync();pDraft.variants.splice(${n},1);drawProductForm(${ex ? 'S.products.find(x=>x.id===pDraft.id)' : 'null'})">✕</button></div>`).join('')}
+    <div class="full variants"><label>Sizes / variants &amp; prices (cost = what it costs you to make; filled in automatically once a size has a recipe)</label>
+      ${p.variants.map((v, n) => `<div class="row"><input data-vn="${n}" data-k="label" placeholder="e.g. 750 g" value="${esc(v.label)}"><input data-vn="${n}" data-k="price" type="number" min="0" placeholder="Price" value="${v.price}">${v.recipe ? `<input data-vn="${n}" data-k="cost" type="number" value="${v.cost}" readonly title="Worked out from the recipe (Recipes &amp; costing page)" style="background:var(--soft-green)">` : `<input data-vn="${n}" data-k="cost" type="number" min="0" placeholder="Cost" value="${v.cost}">`}<button class="btn sm danger" onclick="pSync();pDraft.variants.splice(${n},1);drawProductForm(${ex ? 'S.products.find(x=>x.id===pDraft.id)' : 'null'})">✕</button></div>`).join('')}
       <button class="btn sm" onclick="pSync();pDraft.variants.push({label:'',price:'',cost:''});drawProductForm(${ex ? 'S.products.find(x=>x.id===pDraft.id)' : 'null'})">+ Add size</button></div>
     ${field('Stock on hand (leave blank if made to order)', `<input type="number" min="0" id="p_stock" value="${p.stock ?? ''}">`)}
     ${field('Visible for new orders', `<select id="p_active"><option value="1" ${p.active ? 'selected' : ''}>Yes</option><option value="0" ${p.active ? '' : 'selected'}>No — hidden</option></select>`)}
@@ -387,12 +389,12 @@ async function delCustomer(id) { if (confirmDo('Delete this customer? Their orde
 // ---------- ingredients ----------
 function inventory() {
   setActions('<button class="btn primary" onclick="ingForm()">+ Add ingredient</button>');
-  $('#view').innerHTML = S.ingredients.length ? `<p class="muted small">Keep track of pantry stock. Ingredients at or below their reorder level are flagged on the dashboard.</p><div class="card table-wrap" style="padding:6px"><table><tr><th>Ingredient</th><th>In stock</th><th>Reorder at</th><th class="r">Cost / unit</th><th></th></tr>${S.ingredients.map((i) => `<tr><td><b>${esc(i.name)}</b> ${i.stock <= i.reorder ? '<span class="chip red">Low</span>' : ''}</td><td><button class="btn sm" onclick="bump('${i.id}',-1)">−</button> <b style="display:inline-block;min-width:56px;text-align:center">${i.stock} ${esc(i.unit)}</b> <button class="btn sm" onclick="bump('${i.id}',1)">+</button></td><td>${i.reorder} ${esc(i.unit)}</td><td class="r">${money(i.cost)}</td><td class="r"><button class="btn sm" onclick="ingForm('${i.id}')">Edit</button></td></tr>`).join('')}</table></div>` : empty('🧈', 'Add your ingredients to track stock.');
+  $('#view').innerHTML = S.ingredients.length ? `<p class="muted small">Keep track of pantry stock. Ingredients at or below their reorder level are flagged on the dashboard.</p><div class="card table-wrap" style="padding:6px"><table><tr><th>Ingredient</th><th>In stock</th><th>Reorder at</th><th class="r">Cost / unit</th><th></th></tr>${S.ingredients.map((i) => `<tr><td><b>${esc(i.name)}</b> ${i.stock <= i.reorder ? '<span class="chip red">Low</span>' : ''}</td><td><button class="btn sm" onclick="bump('${i.id}',-1)">−</button> <b style="display:inline-block;min-width:56px;text-align:center">${i.stock} ${esc(i.unit)}</b> <button class="btn sm" onclick="bump('${i.id}',1)">+</button></td><td>${i.reorder} ${esc(i.unit)}</td><td class="r">${money(i.cost)} / ${esc(i.unit)}</td><td class="r"><button class="btn sm" onclick="ingForm('${i.id}')">Edit</button></td></tr>`).join('')}</table></div>` : empty('🧈', 'Add your ingredients to track stock.');
 }
 async function bump(id, d) { const i = S.ingredients.find((x) => x.id === id); await api('PUT', '/api/ingredients/' + id, { stock: Math.max(0, +(i.stock + d * (i.unit === 'ml' || i.unit === 'g' ? 100 : 1)).toFixed(2)) }); await loadAll(); inventory(); route(); }
 function ingForm(id) {
   const i = (id && S.ingredients.find((x) => x.id === id)) || { name: '', unit: 'kg', stock: 0, reorder: 0, cost: 0 };
-  modal(`<h2>${id ? 'Edit' : 'Add'} ingredient</h2><div class="form">${field('Name', `<input id="i_name" value="${esc(i.name)}">`)}${field('Unit', `<select id="i_unit">${['kg', 'g', 'l', 'ml', 'pcs', 'dozen'].map((u) => `<option ${u === i.unit ? 'selected' : ''}>${u}</option>`).join('')}</select>`)}${field('In stock', `<input id="i_stock" type="number" step="any" value="${i.stock}">`)}${field('Reorder level', `<input id="i_reorder" type="number" step="any" value="${i.reorder}">`)}${field('Cost per unit', `<input id="i_cost" type="number" step="any" value="${i.cost}">`)}</div>
+  modal(`<h2>${id ? 'Edit' : 'Add'} ingredient</h2><div class="form">${field('Name', `<input id="i_name" value="${esc(i.name)}">`)}${field('Unit', `<select id="i_unit">${['kg', 'g', 'l', 'ml', 'pcs', 'dozen'].map((u) => `<option ${u === i.unit ? 'selected' : ''}>${u}</option>`).join('')}</select>`)}${field('In stock', `<input id="i_stock" type="number" step="any" value="${i.stock}">`)}${field('Reorder level', `<input id="i_reorder" type="number" step="any" value="${i.reorder}">`)}${field('Cost per unit (e.g. price of 1 kg)', `<input id="i_cost" type="number" step="any" value="${i.cost}">`)}</div>
   <div class="foot">${id ? `<button class="btn danger" style="margin-right:auto" onclick="delIng('${id}')">Delete</button>` : ''}<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveIng('${id || ''}')">Save</button></div>`);
 }
 async function saveIng(id) {
@@ -421,6 +423,211 @@ async function saveExp() {
   await api('POST', '/api/expenses', b); closeModal(); await refresh();
 }
 async function delExp(id) { if (confirmDo('Delete expense?')) { await api('DELETE', '/api/expenses/' + id); await refresh(); } }
+
+// ---------- recipes & costing ----------
+const pct = (cost, price) => (price ? Math.round((1 - cost / price) * 100) + '%' : '—');
+function recipes() {
+  setActions('');
+  const s = S.settings, rate = Costing.rates(s);
+  const rows = S.products.flatMap((p) => p.variants.map((v, vi) => ({ p, v, vi, c: v.recipe ? Costing.recipeCost(v.recipe, S.ingredients, s) : null })));
+  $('#view').innerHTML = `
+  <div class="card" style="margin-bottom:16px"><h3>Your time &amp; gas</h3>
+    <p class="muted small" style="margin:4px 0 12px">Used for every recipe. Changing these updates all product costs.</p>
+    <div class="form" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+      ${field(`Your time (${cur()} per hour)`, `<input id="r_labourRate" type="number" min="0" step="any" value="${s.labourRate ?? 0}">`)}
+      ${field(`Gas cylinder price (${cur()})`, `<input id="r_gasCylinderPrice" type="number" min="0" step="any" value="${s.gasCylinderPrice ?? 0}">`)}
+      ${field('Hours of cooking one cylinder lasts', `<input id="r_gasCylinderHours" type="number" min="0" step="any" value="${s.gasCylinderHours ?? 0}">`)}
+      <div><label>Gas works out to</label><div style="padding:9px 0"><b>${money(rate.gas)}</b> per hour</div></div>
+    </div>
+    <div class="foot" style="margin-top:10px"><button class="btn primary" onclick="saveRates()">Save rates</button></div></div>
+  ${rows.length ? `<div class="card table-wrap" style="padding:6px"><table><tr><th>Product</th><th class="r">Ingredients</th><th class="r">Your time</th><th class="r">Gas</th><th class="r">Packaging</th><th class="r">Cost / piece</th><th class="r">Price</th><th class="r">Profit</th><th></th></tr>
+  ${rows.map(({ p, v, vi, c }) => `<tr><td><b>${esc(p.name)}</b><div class="small muted">${esc(v.label)}${c ? ` · batch makes ${c.yield}` : ''}</div></td>
+    ${c ? `<td class="r">${money(c.each.ingredients)}</td><td class="r">${money(c.each.labour)}</td><td class="r">${money(c.each.gas)}</td><td class="r">${money(c.each.packaging)}</td><td class="r"><b>${money(c.each.total)}</b></td>`
+        : `<td colspan="4" class="muted small r">No recipe yet${v.cost ? ' — using manual cost' : ''}</td><td class="r">${v.cost ? money(v.cost) : '—'}</td>`}
+    <td class="r">${money(v.price)}</td>
+    <td class="r" style="color:${v.price - v.cost < 0 ? 'var(--red)' : 'var(--green)'}"><b>${v.cost ? money(v.price - v.cost) : '—'}</b><div class="small muted">${v.cost ? pct(v.cost, v.price) : ''}</div></td>
+    <td class="r"><button class="btn sm ${c ? '' : 'primary'}" onclick="recipeForm('${p.id}',${vi})">${c ? 'Edit recipe' : '+ Recipe'}</button></td></tr>`).join('')}</table></div>`
+  : empty('🥣', 'Add products first, then give each size a recipe to see what it really costs you.')}
+  ${S.ingredients.length ? '' : '<p class="muted small">Tip: add your ingredients (with their price per kg / litre / piece) on the Ingredients page so recipes can be costed.</p>'}`;
+}
+async function saveRates() {
+  const b = {}; ['labourRate', 'gasCylinderPrice', 'gasCylinderHours'].forEach((k) => (b[k] = +$('#r_' + k).value || 0));
+  S.settings = await api('PUT', '/api/settings', b);
+  await refresh(); toast('Rates saved — costs updated');
+}
+
+let rDraft; // { pid, vi, recipe }
+function recipeForm(pid, vi) {
+  const p = S.products.find((x) => x.id === pid), v = p.variants[vi];
+  rDraft = { pid, vi, recipe: structuredClone(v.recipe || { yield: 1, items: [], labourMins: 0, gasMins: 0, packaging: 0 }) };
+  drawRecipeForm();
+}
+function drawRecipeForm() {
+  const p = S.products.find((x) => x.id === rDraft.pid), v = p.variants[rDraft.vi], r = rDraft.recipe;
+  const others = p.variants.map((x, i) => ({ x, i })).filter(({ x, i }) => i !== rDraft.vi && x.recipe);
+  const ingOpts = (sel) => `<option value="">Choose…</option>${S.ingredients.map((i) => `<option value="${i.id}" ${i.id === sel ? 'selected' : ''}>${esc(i.name)}</option>`).join('')}`;
+  modal(`<h2>Recipe · ${esc(p.name)} <span class="muted" style="font-size:20px">${esc(v.label)}</span></h2>
+  <div class="form">
+    ${field(`One batch makes how many × ${esc(v.label)}?`, `<input id="rc_yield" type="number" min="1" step="any" value="${r.yield}">`)}
+    ${others.length ? field('Start from another size', `<select id="rc_copy"><option value="">—</option>${others.map(({ x, i }) => `<option value="${i}">${esc(x.label)}</option>`).join('')}</select>`) : '<div></div>'}
+  </div>
+  <hr><h3>Ingredients for the batch</h3>
+  <div class="items recipe" id="rc_items" style="margin-top:8px"></div>
+  <div class="toolbar"><button class="btn sm" onclick="rSync();rDraft.recipe.items.push({ingredientId:'',qty:'',unit:''});drawRecipeForm()">+ Add ingredient</button>${S.ingredients.length ? '' : '<span class="small muted">No ingredients yet — add them on the <a href="#/inventory" onclick="closeModal()">Ingredients</a> page.</span>'}</div>
+  <div class="form">
+    ${field('Your time for the batch (minutes — prep, bake, decorate, pack)', `<input id="rc_labourMins" type="number" min="0" step="any" value="${r.labourMins}">`)}
+    ${field('Gas time for the batch (minutes oven / stove is on)', `<input id="rc_gasMins" type="number" min="0" step="any" value="${r.gasMins}">`)}
+    ${field(`Packaging per piece (${cur()} — box, ribbon, label…)`, `<input id="rc_packaging" type="number" min="0" step="any" value="${r.packaging}">`)}
+  </div>
+  <div class="totals" id="rc_tot" style="width:300px"></div>
+  <div class="foot">${v.recipe ? '<button class="btn danger" style="margin-right:auto" onclick="removeRecipe()">Remove recipe</button>' : ''}<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveRecipe()">Save recipe</button></div>`, { wide: true });
+  $('#rc_items').innerHTML = r.items.length ? `<div class="row h"><span>Ingredient</span><span>Qty</span><span>Unit</span><span class="lt">Cost</span><span></span></div>` + r.items.map((it, n) => {
+    const ing = S.ingredients.find((i) => i.id === it.ingredientId);
+    const units = ing ? Costing.unitsLike(ing.unit) : [];
+    return `<div class="row"><select data-n="${n}" data-k="ingredientId">${ingOpts(it.ingredientId)}</select><input data-n="${n}" data-k="qty" type="number" min="0" step="any" value="${it.qty}"><select data-n="${n}" data-k="unit">${units.map((u) => `<option ${u === (it.unit || ing.unit) ? 'selected' : ''}>${u}</option>`).join('')}</select><span class="lt r" id="rc_lc${n}"></span><button class="btn sm danger" onclick="rSync();rDraft.recipe.items.splice(${n},1);drawRecipeForm()">✕</button></div>`;
+  }).join('') : '<p class="muted small">No ingredients yet.</p>';
+  $$('#rc_items select[data-k=ingredientId]').forEach((el) => (el.onchange = () => { rSync(); const it = r.items[+el.dataset.n]; const ing = S.ingredients.find((i) => i.id === it.ingredientId); it.unit = ing ? ing.unit : ''; drawRecipeForm(); }));
+  $$('#rc_items input, #rc_items select[data-k=unit], #rc_yield, #rc_labourMins, #rc_gasMins, #rc_packaging').forEach((el) => (el.oninput = el.onchange = () => { rSync(); drawRecipeTotals(); }));
+  if ($('#rc_copy')) $('#rc_copy').onchange = (e) => { if (e.target.value === '') return; rDraft.recipe = structuredClone(p.variants[+e.target.value].recipe); drawRecipeForm(); };
+  drawRecipeTotals();
+}
+function rSync() {
+  const r = rDraft.recipe;
+  if (!$('#rc_yield')) return;
+  r.yield = $('#rc_yield').value; r.labourMins = $('#rc_labourMins').value; r.gasMins = $('#rc_gasMins').value; r.packaging = $('#rc_packaging').value;
+  $$('#rc_items [data-n]').forEach((el) => { const it = r.items[+el.dataset.n]; if (it) it[el.dataset.k] = el.value; });
+}
+function drawRecipeTotals() {
+  const v = S.products.find((x) => x.id === rDraft.pid).variants[rDraft.vi];
+  const c = Costing.recipeCost(rDraft.recipe, S.ingredients, S.settings);
+  c.lines.forEach((l, n) => { const el = $('#rc_lc' + n); if (el) el.textContent = money(l.cost); });
+  const profit = v.price - c.each.total;
+  $('#rc_tot').innerHTML = `<div class="small muted"><span>Per piece (batch of ${c.yield})</span></div>
+    <div><span>Ingredients</span><span>${money(c.each.ingredients)}</span></div>
+    <div><span>Your time</span><span>${money(c.each.labour)}</span></div>
+    <div><span>Gas</span><span>${money(c.each.gas)}</span></div>
+    <div><span>Packaging</span><span>${money(c.each.packaging)}</span></div>
+    <div class="grand"><span>Cost</span><span>${money(c.each.total)}</span></div>
+    <div><span>Selling price</span><span>${money(v.price)}</span></div>
+    <div style="color:${profit < 0 ? 'var(--red)' : 'var(--green)'}"><b>Profit</b><b>${money(profit)} (${pct(c.each.total, v.price)})</b></div>
+    ${S.settings.labourRate ? `<div class="small muted"><span>…plus your own pay of</span><span>${money(c.each.labour)}</span></div>` : ''}`;
+}
+async function putVariant(change) {
+  const p = structuredClone(S.products.find((x) => x.id === rDraft.pid));
+  change(p.variants[rDraft.vi]);
+  await api('PUT', '/api/products/' + p.id, p);
+  closeModal(); await refresh();
+}
+async function saveRecipe() {
+  rSync();
+  const r = rDraft.recipe;
+  r.items = r.items.filter((i) => i.ingredientId && +i.qty);
+  await putVariant((v) => (v.recipe = r)); toast('Recipe saved — cost updated');
+}
+async function removeRecipe() {
+  if (!confirmDo('Remove this recipe? The last worked-out cost is kept as a manual cost.')) return;
+  await putVariant((v) => (v.recipe = null)); toast('Recipe removed');
+}
+
+// ---------- accounts ----------
+const PERIODS = {
+  all: ['All time', () => ({})],
+  fy: ['This financial year', () => { const d = new Date(), y = d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear(); return { from: `${y}-04-01`, to: `${y + 1}-03-31` }; }],
+  month: ['This month', () => { const m = today().slice(0, 7); return { from: m + '-01', to: m + '-31' }; }],
+  year: ['This calendar year', () => { const y = today().slice(0, 4); return { from: y + '-01-01', to: y + '-12-31' }; }],
+};
+let ACC = null;
+async function accounts() {
+  const u = S.ui;
+  const q = new URLSearchParams(PERIODS[u.acctPeriod][1]()).toString();
+  ACC = await api('GET', '/api/accounts' + (q ? '?' + q : ''));
+  const A = ACC, name = (code) => (A.accounts.find((a) => a.code === code) || {}).name || code;
+  setActions(`<select style="width:auto" onchange="S.ui.acctPeriod=this.value;accounts()">${Object.entries(PERIODS).map(([k, [l]]) => `<option value="${k}" ${u.acctPeriod === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <div class="seg"><button class="${u.acctView === 'summary' ? 'on' : ''}" onclick="S.ui.acctView='summary';accounts()">Summary</button><button class="${u.acctView === 'double' ? 'on' : ''}" onclick="S.ui.acctView='double';accounts()">Double-entry</button></div>
+    <button class="btn primary" onclick="journalForm()">+ Journal entry</button>`);
+  const pl = A.pnl, bs = A.balanceSheet;
+  const list = (rows) => rows.map((a) => `<tr class="click" onclick="ledger('${a.code}')"><td>${esc(a.name)}</td><td class="r">${money(a.balance)}</td></tr>`).join('');
+  const pnlCard = `<div class="card"><h3>Profit &amp; loss</h3><table style="margin-top:8px">
+    <tr><th colspan="2">Income</th></tr>${pl.income.map((a) => `<tr class="click" onclick="ledger('${a.code}')"><td>${esc(a.name)}</td><td class="r">${a.code === '4900' ? '−' + money(a.debit - a.credit) : money(a.balance)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted small">None yet</td></tr>'}
+    <tr><td><b>Total income</b></td><td class="r"><b>${money(pl.totalIncome)}</b></td></tr>
+    <tr><th colspan="2">Expenses</th></tr>${list(pl.expense) || '<tr><td colspan="2" class="muted small">None yet</td></tr>'}
+    <tr><td><b>Total expenses</b></td><td class="r"><b>${money(pl.totalExpense)}</b></td></tr>
+    <tr><td><b>${pl.profit < 0 ? 'Loss' : 'Profit'}</b></td><td class="r" style="color:${pl.profit < 0 ? 'var(--red)' : 'var(--green)'};font-size:18px"><b>${money(pl.profit)}</b></td></tr></table>
+    <p class="small muted">Sales count once the order is Delivered. Your own time isn't an expense here — the profit is what you earned for it.</p></div>`;
+  const bsCard = `<div class="card"><h3>Balance sheet <span class="small muted" style="font-family:Inter">${u.acctPeriod === 'all' ? 'today' : 'at end of period'}</span></h3><table style="margin-top:8px">
+    <tr><th colspan="2">What the business has</th></tr>${list(bs.assets)}<tr><td><b>Total assets</b></td><td class="r"><b>${money(bs.totalAssets)}</b></td></tr>
+    <tr><th colspan="2">What it owes</th></tr>${list(bs.liabilities) || '<tr><td colspan="2" class="muted small">Nothing</td></tr>'}<tr><td><b>Total liabilities</b></td><td class="r"><b>${money(bs.totalLiabilities)}</b></td></tr>
+    <tr><th colspan="2">Owner's equity</th></tr>${list(bs.equity)}<tr><td>Profit kept in the business</td><td class="r">${money(bs.profitToDate)}</td></tr><tr><td><b>Total equity</b></td><td class="r"><b>${money(bs.totalEquity)}</b></td></tr></table>
+    <p class="small ${bs.balanced ? 'muted' : ''}" style="${bs.balanced ? '' : 'color:var(--red)'}">${bs.balanced ? '✓ Assets = Liabilities + Equity' : '⚠ Not balancing — please check manual journal entries'}</p></div>`;
+
+  if (u.acctView === 'summary') {
+    $('#view').innerHTML = `<div class="grid stats">
+      <div class="card stat"><div class="n">${money(pl.totalIncome)}</div><div class="l">Income (delivered orders)</div></div>
+      <div class="card stat red"><div class="n">${money(pl.totalExpense)}</div><div class="l">Expenses</div></div>
+      <div class="card stat ${pl.profit < 0 ? 'red' : ''}"><div class="n">${money(pl.profit)}</div><div class="l">Profit</div></div>
+      <div class="card stat"><div class="n">${money(A.cash)}</div><div class="l">Cash &amp; bank (per books)</div></div>
+      <div class="card stat red"><div class="n">${money(A.receivable)}</div><div class="l">Customers owe you</div></div>
+      <div class="card stat"><div class="n">${money(A.advances)}</div><div class="l">Advances for undelivered orders</div></div>
+    </div><div class="grid cols2" style="margin-top:16px">${pnlCard}${bsCard}</div>`;
+    return;
+  }
+  const t = A.trial;
+  $('#view').innerHTML = `<p class="muted small" style="margin-top:0">Every rupee is recorded twice — a debit in one account and a matching credit in another — built automatically from your orders and expenses. Add a journal entry for anything else (money you put in or took out, loans).</p>
+  <div class="grid cols2">
+    <div class="card table-wrap"><h3>Trial balance</h3><table style="margin-top:8px"><tr><th>Account</th><th class="r">Debit</th><th class="r">Credit</th></tr>
+      ${t.rows.map((a) => `<tr class="click" onclick="ledger('${a.code}')"><td><span class="muted small">${a.code}</span> ${esc(a.name)}<div class="small muted">${a.type}</div></td><td class="r">${a.debit ? money(a.debit) : ''}</td><td class="r">${a.credit ? money(a.credit) : ''}</td></tr>`).join('') || '<tr><td colspan="3" class="muted small">No entries yet</td></tr>'}
+      <tr><td><b>Total</b> ${t.balanced ? '<span class="chip">Balanced ✓</span>' : '<span class="chip red">Out of balance</span>'}</td><td class="r"><b>${money(t.debit)}</b></td><td class="r"><b>${money(t.credit)}</b></td></tr></table></div>
+    ${pnlCard}
+  </div>
+  <div class="grid cols2" style="margin-top:16px">${bsCard}
+    <div class="card"><h3>Chart of accounts</h3><table style="margin-top:8px">${A.accounts.map((a) => `<tr class="click" onclick="ledger('${a.code}')"><td class="muted small">${a.code}</td><td>${esc(a.name)}</td><td class="small muted">${a.type}</td></tr>`).join('')}</table></div></div>
+  <div class="card table-wrap" style="margin-top:16px;padding:6px"><div style="display:flex;justify-content:space-between;align-items:center;padding:10px"><h3>Journal</h3><button class="btn sm" onclick="journalCsv()">⬇ CSV</button></div>
+    ${A.journal.length ? `<table><tr><th>Date</th><th>Ref</th><th>Details</th><th>Account</th><th class="r">Debit</th><th class="r">Credit</th><th></th></tr>
+    ${[...A.journal].reverse().map((e) => e.lines.map((l, n) => `<tr${n === e.lines.length - 1 ? '' : ' style="border:0"'}>${n === 0 ? `<td rowspan="${e.lines.length}">${fdate(e.date)}</td><td rowspan="${e.lines.length}"><span class="chip ${e.source === 'manual' ? 'gold' : e.source === 'expense' ? 'red' : ''}">${esc(e.ref)}</span></td><td rowspan="${e.lines.length}">${esc(e.memo)}</td>` : ''}
+      <td style="${l.credit ? 'padding-left:30px' : ''}">${esc(name(l.account))}</td><td class="r">${l.debit ? money(l.debit) : ''}</td><td class="r">${l.credit ? money(l.credit) : ''}</td>
+      ${n === 0 ? `<td rowspan="${e.lines.length}" class="r">${e.source === 'manual' ? `<button class="btn sm danger" onclick="delJournal('${e.sourceId}')">✕</button>` : e.source === 'order' ? `<button class="btn sm" onclick="orderDetail('${e.sourceId}')">View</button>` : ''}</td>` : ''}</tr>`).join('')).join('')}</table>` : empty('📒', 'No entries yet — they appear as orders get paid and delivered, and as you log expenses.')}</div>`;
+}
+function ledger(code) {
+  const a = ACC.accounts.find((x) => x.code === code);
+  const debitNormal = a.type === 'Asset' || a.type === 'Expense';
+  let bal = 0;
+  const rows = ACC.journal.flatMap((e) => e.lines.filter((l) => l.account === code).map((l) => { bal += debitNormal ? l.debit - l.credit : l.credit - l.debit; return { e, l, bal }; }));
+  modal(`<div style="display:flex;justify-content:space-between"><h2>${a.code} · ${esc(a.name)}</h2><button class="btn sm" onclick="closeModal()">✕</button></div><p class="muted small">${a.type} account · normal balance is a ${debitNormal ? 'debit' : 'credit'}</p>
+  ${rows.length ? `<div class="table-wrap"><table><tr><th>Date</th><th>Details</th><th class="r">Debit</th><th class="r">Credit</th><th class="r">Balance</th></tr>${rows.map(({ e, l, bal }) => `<tr><td>${fdate(e.date)}</td><td>${esc(e.ref)} · ${esc(e.memo)}</td><td class="r">${l.debit ? money(l.debit) : ''}</td><td class="r">${l.credit ? money(l.credit) : ''}</td><td class="r"><b>${money(bal)}</b></td></tr>`).join('')}</table></div>` : '<p class="muted">No entries in this period.</p>'}`, { wide: true });
+}
+const JOURNAL_PRESETS = [
+  ['I put my own money into the business', '1000', '3000'],
+  ['I took money out for myself', '3100', '1000'],
+  ['Took a loan / bought on credit', '1000', '2100'],
+  ['Repaid a loan or bill', '2100', '1000'],
+  ['Refunded a customer', '4000', '1000'],
+  ['Custom…', '', ''],
+];
+function journalForm() {
+  const opts = (sel) => ACC.accounts.map((a) => `<option value="${a.code}" ${a.code === sel ? 'selected' : ''}>${a.code} · ${esc(a.name)}</option>`).join('');
+  modal(`<h2>Journal entry</h2><div class="form">
+    ${field('What happened?', `<select id="j_preset">${JOURNAL_PRESETS.map((p, i) => `<option value="${i}">${p[0]}</option>`).join('')}</select>`, 'full')}
+    ${field('Date', `<input id="j_date" type="date" value="${today()}">`)}${field('Amount', `<input id="j_amount" type="number" min="0" step="any">`)}
+    ${field('Debit (where the value goes)', `<select id="j_debit">${opts(JOURNAL_PRESETS[0][1])}</select>`)}${field('Credit (where it comes from)', `<select id="j_credit">${opts(JOURNAL_PRESETS[0][2])}</select>`)}
+    ${field('Note', `<input id="j_memo" value="${esc(JOURNAL_PRESETS[0][0])}">`, 'full')}</div>
+    <p class="small muted">Orders, payments and expenses are recorded automatically — only use this for anything else.</p>
+  <div class="foot"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveJournal()">Save entry</button></div>`);
+  $('#j_preset').onchange = (e) => { const p = JOURNAL_PRESETS[+e.target.value]; if (p[1]) { $('#j_debit').value = p[1]; $('#j_credit').value = p[2]; $('#j_memo').value = p[0]; } };
+}
+async function saveJournal() {
+  const b = { date: $('#j_date').value, amount: $('#j_amount').value, debit: $('#j_debit').value, credit: $('#j_credit').value, memo: $('#j_memo').value };
+  try { await api('POST', '/api/journal', b); } catch (e) { return toast(e.message); }
+  closeModal(); accounts(); toast('Entry saved');
+}
+async function delJournal(id) { if (confirmDo('Delete this journal entry?')) { await api('DELETE', '/api/journal/' + id); accounts(); } }
+function journalCsv() {
+  const name = (code) => (ACC.accounts.find((a) => a.code === code) || {}).name || code;
+  const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const rows = [['Date', 'Ref', 'Details', 'Account code', 'Account', 'Debit', 'Credit'], ...ACC.journal.flatMap((e) => e.lines.map((l) => [e.date, e.ref, e.memo, l.account, name(l.account), l.debit || '', l.credit || '']))];
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([rows.map((r) => r.map(q).join(',')).join('\n')], { type: 'text/csv' }));
+  a.download = 'journal.csv'; a.click();
+}
 
 // ---------- settings ----------
 function settings() {

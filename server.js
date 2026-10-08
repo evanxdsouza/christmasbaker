@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const store = require('./db');
 const { renderInvoice, orderTotals } = require('./invoice');
+const Costing = require('./public/js/costing');
+const accounting = require('./accounting');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -69,21 +71,37 @@ function adjustStock(order, dir) {
   }
 }
 
+// Variants with a recipe get their cost worked out from it (ingredients + your time + gas + packaging).
+function costVariant(v) {
+  if (Costing.hasRecipe(v)) v.cost = Costing.round(Costing.recipeCost(v.recipe, db().ingredients, db().settings).each.total);
+}
+function recalcCosts() { for (const p of db().products) for (const v of p.variants) costVariant(v); }
+
+const cleanRecipe = (r) => (r ? {
+  yield: Math.max(1, Number(r.yield) || 1),
+  items: (r.items || []).filter((i) => i.ingredientId && Number(i.qty)).map((i) => ({ ingredientId: i.ingredientId, qty: Number(i.qty), unit: i.unit || '' })),
+  labourMins: Number(r.labourMins) || 0,
+  gasMins: Number(r.gasMins) || 0,
+  packaging: Number(r.packaging) || 0,
+} : null);
+
 // ---- settings ------------------------------------------------------------
 app.get('/api/settings', (req, res) => res.json(db().settings));
 app.put('/api/settings', (req, res) => {
   db().settings = { ...db().settings, ...req.body };
+  recalcCosts();
   store.save();
   res.json(db().settings);
 });
 
 // ---- generic-ish CRUD for simple collections -----------------------------
-function crud(name, { prepare } = {}) {
+function crud(name, { prepare, after } = {}) {
   app.get(`/api/${name}`, (req, res) => res.json(db()[name]));
   app.post(`/api/${name}`, (req, res) => {
     const item = { ...req.body, id: store.uid(), created: Date.now() };
     if (prepare) prepare(item);
     db()[name].push(item);
+    if (after) after();
     store.save();
     res.status(201).json(item);
   });
@@ -93,6 +111,7 @@ function crud(name, { prepare } = {}) {
     const item = { ...db()[name][i], ...strip(req.body) };
     if (prepare) prepare(item);
     db()[name][i] = item;
+    if (after) after();
     store.save();
     res.json(item);
   });
@@ -103,6 +122,7 @@ function crud(name, { prepare } = {}) {
       for (const f of [item.file, item.image]) if (f && f.startsWith('/uploads/')) fs.rm(path.join(store.STORAGE, f), { force: true }, () => {});
     }
     db()[name] = db()[name].filter((x) => x.id !== req.params.id);
+    if (after) after();
     store.save();
     res.sendStatus(204);
   });
@@ -110,15 +130,35 @@ function crud(name, { prepare } = {}) {
 
 crud('products', {
   prepare: (p) => {
-    p.variants = (p.variants || []).filter((v) => v.label).map((v) => ({ label: v.label, price: Number(v.price) || 0, cost: Number(v.cost) || 0 }));
+    p.variants = (p.variants || []).filter((v) => v.label).map((v) => ({ label: v.label, price: Number(v.price) || 0, cost: Number(v.cost) || 0, recipe: cleanRecipe(v.recipe) }));
+    p.variants.forEach(costVariant);
     p.stock = p.stock === '' || p.stock === null || p.stock === undefined ? null : Number(p.stock);
     p.leadDays = Number(p.leadDays) || 0;
   },
 });
 crud('customers');
-crud('ingredients', { prepare: (i) => { ['stock', 'reorder', 'cost'].forEach((k) => (i[k] = Number(i[k]) || 0)); } });
+crud('ingredients', { prepare: (i) => { ['stock', 'reorder', 'cost'].forEach((k) => (i[k] = Number(i[k]) || 0)); }, after: recalcCosts });
 crud('expenses', { prepare: (e) => { e.amount = Number(e.amount) || 0; } });
 crud('assets');
+
+// ---- accounts (double entry) ---------------------------------------------
+const ACCOUNT_CODES = new Set(accounting.ACCOUNTS.map((a) => a.code));
+app.get('/api/accounts', (req, res) => res.json(accounting.report(db(), { from: req.query.from, to: req.query.to })));
+app.get('/api/journal', (req, res) => res.json(db().journal));
+app.post('/api/journal', (req, res) => {
+  const b = req.body;
+  const amount = Math.round((Number(b.amount) || 0) * 100) / 100;
+  if (!(amount > 0) || !ACCOUNT_CODES.has(b.debit) || !ACCOUNT_CODES.has(b.credit) || b.debit === b.credit) return res.status(400).json({ error: 'Pick two different accounts and an amount' });
+  const e = { id: store.uid(), created: Date.now(), date: b.date || new Date().toISOString().slice(0, 10), memo: b.memo || '', lines: [{ account: b.debit, debit: amount, credit: 0 }, { account: b.credit, debit: 0, credit: amount }] };
+  db().journal.push(e);
+  store.save();
+  res.status(201).json(e);
+});
+app.delete('/api/journal/:id', (req, res) => {
+  db().journal = db().journal.filter((x) => x.id !== req.params.id);
+  store.save();
+  res.sendStatus(204);
+});
 
 // ---- file uploads --------------------------------------------------------
 // kind=products -> returns a URL to put on a product; kind=assets -> also saved into the asset library

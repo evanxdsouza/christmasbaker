@@ -19,6 +19,9 @@ const DEFAULTS = {
     paymentNote: '',
     nextInvoiceNo: 1,
     invoicePrefix: 'TCB-',
+    labourRate: 150, // what an hour of your time is worth
+    gasCylinderPrice: 900,
+    gasCylinderHours: 40, // hours of oven/stove use one cylinder lasts
   },
   products: [],
   customers: [],
@@ -26,6 +29,7 @@ const DEFAULTS = {
   assets: [],
   ingredients: [],
   expenses: [],
+  journal: [], // manual double-entry entries (owner money, loans…)
 };
 
 let db;
@@ -68,6 +72,6 @@ function seed() {
 
 load();
 
-const collections = ['products', 'customers', 'orders', 'assets', 'ingredients', 'expenses'];
+const collections = ['products', 'customers', 'orders', 'assets', 'ingredients', 'expenses', 'journal'];
 
 module.exports = { STORAGE, get db() { return db; }, save, uid, collections };
