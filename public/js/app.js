@@ -390,22 +390,29 @@ async function delCustomer(id) { if (confirmDo('Delete this customer? Their orde
 // ---------- ingredients ----------
 function inventory() {
   setActions('<button class="btn primary" onclick="ingForm()">+ Add ingredient</button>');
-  const s = S.settings, linked = S.ingredients.filter((i) => i.autoPrice).length;
+  const s = S.settings, linked = S.ingredients.filter((i) => i.autoPrice).length, prov = s.aiProvider || 'groq';
   const priceCell = (i) => `${unitPrice(i.cost)} / ${esc(i.unit)}${i.market ? `<div class="small muted" title="${esc(i.market.basis)}${i.market.source ? ' · ' + esc(i.market.source) : ''}">📈 auto · ${fdate(new Date(i.market.at).toISOString())}</div>` : i.autoPrice ? '<div class="small muted">📈 waiting for update</div>' : ''}`;
   const marketCard = `<div class="card" style="margin-bottom:16px"><h3>Automatic prices</h3>
-    <p class="muted small" style="margin:4px 0 12px">Uses Groq's free AI with web search to look up today's shop price for ingredients you tick "Look up price automatically", then updates recipe costs. Get a free API key at <a href="https://console.groq.com/keys" target="_blank">console.groq.com/keys</a> (no card needed).</p>
+    <p class="muted small" style="margin:4px 0 12px">Uses a free AI to look up shop prices for ingredients you tick "Look up price automatically", then updates recipe costs. <b>Groq</b> searches the web, so prices are today's (free key at <a href="https://console.groq.com/keys" target="_blank">console.groq.com/keys</a>). <b>Hack Club AI</b> is free for teens but can't browse, so its prices are estimates (key at <a href="https://ai.hackclub.com" target="_blank">ai.hackclub.com</a>).</p>
     <div class="form" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
-      ${field('Groq API key', `<input id="m_groqApiKey" type="password" autocomplete="off" placeholder="${s.groqKeySet ? '•••••••• saved — paste to replace' : 'gsk_…'}">`)}
+      ${field('AI provider', `<select id="m_aiProvider" onchange="setProvider(this.value)"><option value="groq" ${prov === 'groq' ? 'selected' : ''}>Groq (web search)</option><option value="hackclub" ${prov === 'hackclub' ? 'selected' : ''}>Hack Club AI (estimates)</option></select>`)}
+      ${prov === 'groq'
+        ? field('Groq API key', `<input id="m_groqApiKey" type="password" autocomplete="off" placeholder="${s.groqKeySet ? '•••••••• saved — paste to replace' : 'gsk_…'}">`)
+        : field('Hack Club AI API key', `<input id="m_hackclubApiKey" type="password" autocomplete="off" placeholder="${s.hackclubKeySet ? '•••••••• saved — paste to replace' : 'paste key'}">`) + field('Model (optional)', `<input id="m_hackclubModel" value="${esc(s.hackclubModel)}" placeholder="auto">`)}
       ${field('Your city / state', `<input id="m_marketLocation" value="${esc(s.marketLocation)}" placeholder="e.g. Panaji, Goa">`)}
       ${field('Update automatically', `<select id="m_marketAuto"><option value="1" ${s.marketAuto ? 'selected' : ''}>Daily</option><option value="0" ${s.marketAuto ? '' : 'selected'}>Only when I click</option></select>`)}
     </div>
-    <div class="foot" style="margin-top:10px;align-items:center"><span class="small muted" style="margin-right:auto">${linked} ingredient${linked === 1 ? '' : 's'} on auto${s.marketLastRun ? ` · last updated ${fdate(new Date(s.marketLastRun).toISOString())}` : ''}${s.groqModelResolved ? ` · using ${esc(s.groqModelResolved)}` : ''}</span>
+    <div class="foot" style="margin-top:10px;align-items:center"><span class="small muted" style="margin-right:auto">${linked} ingredient${linked === 1 ? '' : 's'} on auto${s.marketLastRun ? ` · last updated ${fdate(new Date(s.marketLastRun).toISOString())}` : ''}${s.aiModelResolved ? ` · using ${esc(s.aiModelResolved)}` : ''}</span>
       <button class="btn" onclick="saveMarket()">Save</button><button class="btn primary" onclick="saveMarket(true)">📈 Update prices now</button></div></div>`;
+  window.setProvider = (v) => { S.settings = { ...S.settings, aiProvider: v }; inventory(); };
   $('#view').innerHTML = marketCard + (S.ingredients.length ? `<p class="muted small">Keep track of pantry stock. Ingredients at or below their reorder level are flagged on the dashboard.</p><div class="card table-wrap" style="padding:6px"><table><tr><th>Ingredient</th><th>In stock</th><th>Reorder at</th><th class="r">Cost / unit</th><th></th></tr>${S.ingredients.map((i) => `<tr><td><b>${esc(i.name)}</b> ${i.stock <= i.reorder ? '<span class="chip red">Low</span>' : ''}</td><td><button class="btn sm" onclick="bump('${i.id}',-1)">−</button> <b style="display:inline-block;min-width:56px;text-align:center">${i.stock} ${esc(i.unit)}</b> <button class="btn sm" onclick="bump('${i.id}',1)">+</button></td><td>${i.reorder} ${esc(i.unit)}</td><td class="r">${priceCell(i)}</td><td class="r"><button class="btn sm" onclick="ingForm('${i.id}')">Edit</button></td></tr>`).join('')}</table></div>` : empty('🧈', 'Add your ingredients to track stock.'));
 }
 async function saveMarket(run) {
-  const b = { marketLocation: $('#m_marketLocation').value.trim(), marketAuto: $('#m_marketAuto').value === '1' };
-  if ($('#m_groqApiKey').value.trim()) b.groqApiKey = $('#m_groqApiKey').value.trim();
+  const prov = $('#m_aiProvider').value;
+  const b = { aiProvider: prov, marketLocation: $('#m_marketLocation').value.trim(), marketAuto: $('#m_marketAuto').value === '1' };
+  const key = $('#m_' + prov + 'ApiKey');
+  if (key && key.value.trim()) b[prov + 'ApiKey'] = key.value.trim();
+  if ($('#m_hackclubModel')) b.hackclubModel = $('#m_hackclubModel').value.trim();
   S.settings = await api('PUT', '/api/settings', b);
   if (!run) { toast('Saved'); return inventory(); }
   if (!S.ingredients.some((i) => i.autoPrice)) return toast('Edit an ingredient and tick "Look up price automatically" first');

@@ -6,7 +6,7 @@ const store = require('./db');
 const { renderInvoice, orderTotals } = require('./invoice');
 const Costing = require('./public/js/costing');
 const accounting = require('./accounting');
-const market = require('./groqprices');
+const market = require('./aiprices');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -87,14 +87,18 @@ const cleanRecipe = (r) => (r ? {
 } : null);
 
 // ---- settings ------------------------------------------------------------
-// The Groq key never goes back to the browser; it only learns whether one is set.
-const publicSettings = () => { const { groqApiKey, ...s } = db().settings; return { ...s, groqKeySet: !!groqApiKey }; };
+// API keys never go back to the browser; it only learns whether one is set.
+const SECRETS = ['groqApiKey', 'hackclubApiKey'];
+const publicSettings = () => {
+  const s = { ...db().settings };
+  for (const k of SECRETS) { s[k.replace('ApiKey', 'KeySet')] = !!s[k]; delete s[k]; }
+  return s;
+};
 app.get('/api/settings', (req, res) => res.json(publicSettings()));
 app.put('/api/settings', (req, res) => {
-  const { groqKeySet, ...b } = req.body;
-  if (!b.groqApiKey && !b.clearGroqKey) delete b.groqApiKey; // blank field = keep the saved key
-  if (b.clearGroqKey) b.groqApiKey = '';
-  delete b.clearGroqKey;
+  const { groqKeySet, hackclubKeySet, ...b } = req.body;
+  for (const k of SECRETS) if (!b[k]) delete b[k]; // blank field = keep the saved key
+  delete b.aiModelResolved;
   db().settings = { ...db().settings, ...b };
   recalcCosts();
   store.save();

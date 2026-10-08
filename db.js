@@ -22,7 +22,10 @@ const DEFAULTS = {
     labourRate: 150, // what an hour of your time is worth
     gasCylinderPrice: 900,
     gasCylinderHours: 40, // hours of oven/stove use one cylinder lasts
-    groqApiKey: '', // free key from console.groq.com, used to look up ingredient prices
+    aiProvider: 'groq', // 'groq' (web search) or 'hackclub' (Hack Club AI)
+    groqApiKey: '', // free key from console.groq.com
+    hackclubApiKey: '', // key from ai.hackclub.com
+    hackclubModel: '', // optional: force a specific Hack Club AI model
     marketLocation: '', // city / state prices are looked up for
     marketAuto: true,
     marketLastRun: 0,
