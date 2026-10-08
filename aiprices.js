@@ -1,6 +1,6 @@
 // Looks up retail prices for ingredients with a free AI API, priced per each ingredient's own unit.
-// Providers: Groq (has built-in web search, so prices are today's) and Hack Club AI
-// (OpenAI-compatible; no web search that we know of, so prices are the model's best estimate).
+// Providers: Groq (built-in web search) and Hack Club AI (OpenAI-compatible chat model; web
+// search comes from Hack Club's Exa proxy, which we query ourselves and hand to the model to read).
 
 const PROVIDERS = {
   groq: {
@@ -22,7 +22,7 @@ const PROVIDERS = {
     label: 'Hack Club AI',
     base: 'https://ai.hackclub.com/proxy/v1',
     keyField: 'hackclubApiKey',
-    search: false,
+    search: false, // the chat model itself can't browse; see usesExa()
     models: [{ model: 'qwen/qwen3-32b' }, { model: 'openai/gpt-oss-120b' }, { model: 'moonshotai/kimi-k2-thinking' }],
     hint: 'Check the key at ai.hackclub.com, or type a model name from its list in the Model box.',
   },
@@ -33,6 +33,10 @@ const SANITY = 4; // a new price more than 4× off the old one is reported, not 
 
 const provider = (s) => PROVIDERS[s.aiProvider] || PROVIDERS.groq;
 const keyOf = (s) => s[provider(s).keyField];
+// Hack Club AI can search through its Exa proxy (same key). On by default; costs ~1¢ per ingredient.
+const usesExa = (s) => provider(s) === PROVIDERS.hackclub && s.hackclubSearch !== false;
+const live = (s) => provider(s).search || usesExa(s); // are prices backed by real search results?
+
 const auth = (s) => ({ Authorization: `Bearer ${keyOf(s)}` });
 
 async function candidates(s) {
@@ -80,13 +84,32 @@ async function complete(s, prompt) {
   throw new Error(`Your ${P.label} key can't use any of the models we tried (${tried.map((c) => c.model).join(', ')}). ${P.hint}${lastErr ? ' Last error: ' + lastErr.message : ''}`);
 }
 
-async function ask(s, items) {
+// One Exa search per ingredient. Returns { text, cost }; text is '' if nothing usable came back.
+async function exaSearch(s, ing, where) {
+  const q = `${ing.marketQuery || ing.name} price in ${where} buy online BigBasket Blinkit Amazon`;
+  const r = await fetch(`${provider(s).base}/exa/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth(s) },
+    body: JSON.stringify({ query: q, numResults: 4, contents: { text: { maxCharacters: 600 } } }),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!r.ok) throw new Error(`Exa search replied ${r.status}`);
+  const j = await r.json();
+  const text = (j.results || []).filter((x) => x.text).map((x, n) => `[${n + 1}] ${x.title || ''} (${x.url})\n${String(x.text).replace(/\s+/g, ' ').trim()}`).join('\n');
+  return { text, cost: Number(j.costDollars && j.costDollars.total) || 0 };
+}
+
+async function ask(s, items, context = {}) {
   const where = s.marketLocation || 'India';
-  const list = items.map((i, n) => `${n + 1}. id=${i.id} · ${i.marketQuery || i.name} · price per 1 ${i.unit}`).join('\n');
   const P = provider(s);
+  const searched = usesExa(s);
+  const list = items.map((i, n) => `${n + 1}. id=${i.id} · ${i.marketQuery || i.name} · price per 1 ${i.unit}` +
+    (searched ? `\n   Search results:\n${(context[i.id] || '(none found — give your best estimate from knowledge)').replace(/^/gm, '   ')}` : '')).join('\n');
   const task = P.search
     ? "Search the web for today's typical retail price"
-    : "From your own knowledge (you cannot browse), give your best estimate of the current typical retail price";
+    : searched
+      ? "Using the search results given under each ingredient (not your memory, unless an ingredient has none), work out the current typical retail price"
+      : "From your own knowledge (you cannot browse), give your best estimate of the current typical retail price";
   const prompt = `${task} in ${where} (in Indian rupees) for each baking ingredient below, as sold to a home baker in shops or on grocery apps (BigBasket, Blinkit, Amazon, local stores). Convert each to the price for exactly ONE of the unit given (e.g. per 1 g means divide a 500 g pack price by 500).
 
 ${list}
@@ -108,10 +131,18 @@ async function update(db) {
   const P = provider(s);
   const todo = db.ingredients.filter((i) => i.autoPrice);
   const report = [];
+  let spent = 0;
   for (let n = 0; n < todo.length; n += BATCH) {
     const batch = todo.slice(n, n + BATCH);
+    const context = {};
+    if (usesExa(s)) {
+      await Promise.all(batch.map(async (ing) => {
+        try { const r = await exaSearch(s, ing, s.marketLocation || 'India'); context[ing.id] = r.text; spent += r.cost; }
+        catch (e) { context[ing.id] = ''; } // no results -> the model estimates and the price is labelled as an estimate
+      }));
+    }
     let prices;
-    try { prices = await ask(s, batch); } catch (e) { batch.forEach((i) => report.push({ name: i.name, ok: false, msg: e.message })); continue; }
+    try { prices = await ask(s, batch, context); } catch (e) { batch.forEach((i) => report.push({ name: i.name, ok: false, msg: e.message })); continue; }
     for (const ing of batch) {
       const p = prices.find((x) => String(x.id) === ing.id);
       const price = p && Number(p.price);
@@ -122,11 +153,12 @@ async function update(db) {
         continue;
       }
       ing.cost = Math.round(price * 10000) / 10000; // 4 decimals so per-gram prices stay accurate
-      ing.market = { basis: String(p.basis || '') + (P.search ? '' : ' · AI estimate'), source: String(p.source || ''), at: Date.now() };
+      ing.market = { basis: String(p.basis || '') + (live(s) && (P.search || context[ing.id]) ? '' : ' · AI estimate'), source: String(p.source || ''), at: Date.now() };
       report.push({ name: ing.name, ok: true, cost: ing.cost, unit: ing.unit, ...ing.market });
     }
   }
   s.marketLastRun = Date.now();
+  s.aiLastCost = Math.round(spent * 10000) / 10000; // dollars of Exa search, from Exa's own costDollars
   return report;
 }
 

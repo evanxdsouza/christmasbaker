@@ -98,7 +98,7 @@ app.get('/api/settings', (req, res) => res.json(publicSettings()));
 app.put('/api/settings', (req, res) => {
   const { groqKeySet, hackclubKeySet, ...b } = req.body;
   for (const k of SECRETS) if (!b[k]) delete b[k]; // blank field = keep the saved key
-  delete b.aiModelResolved;
+  delete b.aiModelResolved; delete b.aiLastCost;
   db().settings = { ...db().settings, ...b };
   recalcCosts();
   store.save();

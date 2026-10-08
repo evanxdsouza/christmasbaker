@@ -26,6 +26,7 @@ const DEFAULTS = {
     groqApiKey: '', // free key from console.groq.com
     hackclubApiKey: '', // key from ai.hackclub.com
     hackclubModel: '', // optional: force a specific Hack Club AI model
+    hackclubSearch: true, // use Hack Club's Exa web search so prices are real, not estimates
     marketLocation: '', // city / state prices are looked up for
     marketAuto: true,
     marketLastRun: 0,
