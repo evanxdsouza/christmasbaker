@@ -22,9 +22,9 @@ const DEFAULTS = {
     labourRate: 150, // what an hour of your time is worth
     gasCylinderPrice: 900,
     gasCylinderHours: 40, // hours of oven/stove use one cylinder lasts
-    marketApiKey: '', // data.gov.in key for Agmarknet mandi prices
-    marketState: '',
-    marketMarkup: 25, // % added to wholesale mandi price to approximate shop price
+    groqApiKey: '', // free key from console.groq.com, used to look up ingredient prices
+    groqModel: 'groq/compound', // Groq's model with built-in web search
+    marketLocation: '', // city / state prices are looked up for
     marketAuto: true,
     marketLastRun: 0,
   },

@@ -6,7 +6,7 @@ const store = require('./db');
 const { renderInvoice, orderTotals } = require('./invoice');
 const Costing = require('./public/js/costing');
 const accounting = require('./accounting');
-const market = require('./marketprices');
+const market = require('./groqprices');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -87,12 +87,18 @@ const cleanRecipe = (r) => (r ? {
 } : null);
 
 // ---- settings ------------------------------------------------------------
-app.get('/api/settings', (req, res) => res.json(db().settings));
+// The Groq key never goes back to the browser; it only learns whether one is set.
+const publicSettings = () => { const { groqApiKey, ...s } = db().settings; return { ...s, groqKeySet: !!groqApiKey }; };
+app.get('/api/settings', (req, res) => res.json(publicSettings()));
 app.put('/api/settings', (req, res) => {
-  db().settings = { ...db().settings, ...req.body };
+  const { groqKeySet, ...b } = req.body;
+  if (!b.groqApiKey && !b.clearGroqKey) delete b.groqApiKey; // blank field = keep the saved key
+  if (b.clearGroqKey) b.groqApiKey = '';
+  delete b.clearGroqKey;
+  db().settings = { ...db().settings, ...b };
   recalcCosts();
   store.save();
-  res.json(db().settings);
+  res.json(publicSettings());
 });
 
 // ---- generic-ish CRUD for simple collections -----------------------------
@@ -141,14 +147,14 @@ crud('customers');
 crud('ingredients', {
   prepare: (i) => {
     ['stock', 'reorder', 'cost'].forEach((k) => (i[k] = Number(i[k]) || 0));
-    i.marketCommodity = String(i.marketCommodity || '').trim();
-    i.marketMarkup = i.marketMarkup === '' || i.marketMarkup === null || i.marketMarkup === undefined ? '' : Number(i.marketMarkup) || 0;
-    if (!i.marketCommodity) delete i.market;
+    i.autoPrice = !!i.autoPrice && i.autoPrice !== '0';
+    i.marketQuery = String(i.marketQuery || '').trim();
+    if (!i.autoPrice) delete i.market;
   },
   after: recalcCosts,
 });
 
-// ---- market prices (Agmarknet via data.gov.in) ---------------------------
+// ---- market prices (Groq web search) -------------------------------------
 app.post('/api/market/update', async (req, res) => {
   try {
     const report = await market.update(db());
@@ -289,7 +295,7 @@ app.get('/api/stats', (req, res) => {
 
 app.get('/api/backup', (req, res) => {
   res.setHeader('Content-Disposition', 'attachment; filename="christmas-baker-backup.json"');
-  res.json(db());
+  res.json({ ...db(), settings: publicSettings() });
 });
 
 // Public tracking page + SPA fallback
