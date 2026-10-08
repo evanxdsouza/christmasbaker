@@ -23,7 +23,6 @@ const DEFAULTS = {
     gasCylinderPrice: 900,
     gasCylinderHours: 40, // hours of oven/stove use one cylinder lasts
     groqApiKey: '', // free key from console.groq.com, used to look up ingredient prices
-    groqModel: 'groq/compound', // Groq's model with built-in web search
     marketLocation: '', // city / state prices are looked up for
     marketAuto: true,
     marketLastRun: 0,

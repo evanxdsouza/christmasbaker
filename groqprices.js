@@ -1,10 +1,59 @@
 // Looks up current retail prices for ingredients with Groq's web-searching model
 // (groq/compound, on Groq's free plan) priced per each ingredient's own unit. Needs a free Groq API key.
 
-const URL = 'https://api.groq.com/openai/v1/chat/completions';
+const API = 'https://api.groq.com/openai/v1';
+// Web-searching setups, best first. Not every account can use every model, so we ask Groq
+// which ones this key has and fall through on "model not found / no access".
+const MODELS = [
+  { model: 'groq/compound' },
+  { model: 'groq/compound-mini' },
+  { model: 'openai/gpt-oss-120b', tools: [{ type: 'browser_search' }] },
+  { model: 'openai/gpt-oss-20b', tools: [{ type: 'browser_search' }] },
+];
 const DAY = 24 * 60 * 60 * 1000;
 const BATCH = 8; // ingredients per request
 const SANITY = 4; // a new price more than 4× off the old one is reported, not applied
+
+const auth = (s) => ({ Authorization: `Bearer ${s.groqApiKey}` });
+
+async function candidates(s) {
+  let list = MODELS;
+  try {
+    const r = await fetch(`${API}/models`, { headers: auth(s), signal: AbortSignal.timeout(15000) });
+    if (r.ok) {
+      const have = new Set(((await r.json()).data || []).map((m) => m.id));
+      const usable = MODELS.filter((m) => have.has(m.model));
+      if (usable.length) list = usable;
+    }
+  } catch { /* fall back to trying them all */ }
+  const pref = s.groqModelResolved; // the one that worked last time goes first
+  return [...list].sort((a, b) => (b.model === pref) - (a.model === pref));
+}
+
+async function complete(s, prompt) {
+  let lastErr;
+  const tried = await candidates(s);
+  for (const c of tried) {
+    const body = { model: c.model, temperature: 0, messages: [{ role: 'user', content: prompt }] };
+    if (c.tools) Object.assign(body, { tools: c.tools, tool_choice: 'required' });
+    const r = await fetch(`${API}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth(s) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      lastErr = new Error(`Groq replied ${r.status}${j.error && j.error.message ? ': ' + j.error.message : ''}`);
+      if (r.status === 404 || r.status === 403 || (r.status === 400 && /model|tool/i.test(lastErr.message))) continue; // try the next model
+      throw lastErr;
+    }
+    const msg = (await r.json()).choices?.[0]?.message || {};
+    s.groqModelResolved = c.model;
+    return msg.content || msg.reasoning || ''; // gpt-oss can leave content empty and answer in reasoning
+  }
+  throw new Error(`Your Groq key can't use a web-search model (tried ${tried.map((c) => c.model).join(', ')}). In console.groq.com → Settings → Limits, allow openai/gpt-oss-120b.${lastErr ? ' Last error: ' + lastErr.message : ''}`);
+}
 
 async function ask(s, items) {
   const where = s.marketLocation || 'India';
@@ -16,17 +65,7 @@ ${list}
 Reply with ONLY this JSON, nothing else:
 {"prices":[{"id":"<id>","price":<number in INR per 1 unit>,"basis":"<pack and price you used, e.g. 500 g for ₹260>","source":"<shop or site>"}]}
 Use null for price if you cannot find a reliable figure.`;
-  const r = await fetch(URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.groqApiKey}` },
-    body: JSON.stringify({ model: s.groqModel || 'groq/compound', temperature: 0, messages: [{ role: 'user', content: prompt }] }),
-    signal: AbortSignal.timeout(90000),
-  });
-  if (!r.ok) {
-    const j = await r.json().catch(() => ({}));
-    throw new Error(`Groq replied ${r.status}${j.error && j.error.message ? ': ' + j.error.message : ''}`);
-  }
-  const text = (await r.json()).choices?.[0]?.message?.content || '';
+  const text = await complete(s, prompt);
   const m = text.match(/\{[\s\S]*\}/); // the model sometimes wraps the JSON in prose or ``` fences
   if (!m) throw new Error('Groq did not return prices');
   return JSON.parse(m[0]).prices || [];
