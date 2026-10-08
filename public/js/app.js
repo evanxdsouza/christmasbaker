@@ -98,7 +98,7 @@ async function dashboard() {
     <div class="card stat"><div class="n">${st.open}</div><div class="l">Open orders</div></div>
     <div class="card stat"><div class="n">${money(st.revenue)}</div><div class="l">Total sales</div></div>
     <div class="card stat red"><div class="n">${money(st.outstanding)}</div><div class="l">Payment pending</div></div>
-    <div class="card stat"><div class="n">${money(st.profit)}</div><div class="l">Est. profit (after costs &amp; expenses)</div></div>
+    <a class="card stat ${st.profit < 0 ? 'red' : ''}" href="#/accounts" style="text-decoration:none"><div class="n">${money(st.profit)}</div><div class="l">Profit (delivered orders − expenses)</div></a>
   </div>
   <div class="grid cols2" style="margin-top:16px">
     <div class="card"><h3>Upcoming deliveries</h3>

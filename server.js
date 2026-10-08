@@ -259,7 +259,7 @@ app.get('/api/stats', (req, res) => {
   for (const o of live) { const m = new Date(o.created).toISOString().slice(0, 7); months[m] = (months[m] || 0) + totalOf(o); }
   res.json({
     orders: orders.length, open: orders.filter((o) => !['Delivered', 'Cancelled'].includes(o.status)).length,
-    revenue, collected, outstanding: revenue - collected, cogs, spend, profit: revenue - cogs - spend,
+    revenue, collected, outstanding: revenue - collected, cogs, spend, profit: accounting.report(db()).pnl.profit, // same figure as the Accounts page; recipe costs aren't subtracted again on top of logged expenses
     byStatus, top: Object.values(top).sort((a, b) => b.revenue - a.revenue).slice(0, 6), months,
     lowStock: ingredients.filter((i) => i.stock <= i.reorder), products: products.length,
   });
