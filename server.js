@@ -314,8 +314,12 @@ app.get('/api/stats', (req, res) => {
 
 app.get('/api/backup', (req, res) => {
   res.setHeader('Content-Disposition', 'attachment; filename="christmas-baker-backup.json"');
-  res.json({ ...db(), settings: publicSettings() });
+  const { mcpTokens, ...data } = db();
+  res.json({ ...data, settings: publicSettings() });
 });
+
+// ---- MCP endpoint for AI assistants (/mcp/<token>) ------------------------
+require('./mcp')(app, PORT);
 
 // Public tracking page + SPA fallback
 app.get('/track', (req, res) => res.sendFile(path.join(__dirname, 'public', 'track.html')));
