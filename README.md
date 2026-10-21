@@ -18,3 +18,16 @@ Data lives in `data/db.json`, uploads in `uploads/` (Settings → Download backu
 - **Accounts** – simple summary (income, expenses, profit, cash, what customers owe) with a Double-entry view: journal generated from orders and expenses, trial balance, ledgers, P&L, balance sheet, manual journal entries (owner's money, loans) and CSV export
 - **/track** – public page customers use with their tracking code
 - **Invoices** – `/api/orders/:id/invoice.pdf`, numbered TCB-0001…, FSSAI number and thank-you text from Settings
+
+## AI assistants (MCP)
+
+Claude, ChatGPT and Gemini can work with the platform through a built-in MCP server (no extra packages).
+
+1. **Settings → AI assistants → Make AI link.** Tick **Can create orders** only if that AI should be allowed to place orders; it can be switched on/off later. The link (`https://your-site/mcp/<token>`) is shown once — revoke it any time.
+2. Add the link as a connector:
+   - **Claude** – Settings → Connectors → Add custom connector → paste the link.
+   - **ChatGPT** – Settings → Apps & Connectors → Advanced → Developer mode → Create → paste the link, authentication *None*.
+   - **Gemini CLI** – in `~/.gemini/settings.json`: `{"mcpServers": {"christmas-baker": {"httpUrl": "https://your-site/mcp/<token>"}}}`
+   - Clients that prefer a header can use `https://your-site/mcp` with `Authorization: Bearer <token>`.
+
+Tools: dashboard, list/get/create/update/delete for orders, products, customers, ingredients, expenses, assets and journal entries, invoice links, accounts, settings and price refresh. Without the order permission, `create_order` isn't offered at all. API keys are never exposed. The link must be reachable from the internet (HTTPS) for Claude/ChatGPT to connect.

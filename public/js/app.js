@@ -674,8 +674,31 @@ function settings() {
     ${inp('invoicePrefix', 'Invoice number prefix')}${inp('nextInvoiceNo', 'Next invoice number', 'number')}
     ${field('Thank-you message on invoice', `<textarea id="s_thankYou" rows="3">${esc(s.thankYou)}</textarea>`, 'full')}
     ${field('Payment details on invoice (UPI ID, bank…) — optional', `<textarea id="s_paymentNote" rows="2">${esc(s.paymentNote)}</textarea>`, 'full')}
-  </div><div class="foot"><a class="btn" href="/api/backup">⬇ Download backup</a><button class="btn primary" onclick="saveSettings()">Save settings</button></div></div>`;
+  </div><div class="foot"><a class="btn" href="/api/backup">⬇ Download backup</a><button class="btn primary" onclick="saveSettings()">Save settings</button></div></div>
+  <div class="card" style="max-width:760px;margin-top:16px" id="aiCard"></div>`;
+  aiAccess();
 }
+
+// AI assistants connect over MCP with a private link; creating orders is a separate permission.
+async function aiAccess(newLink) {
+  const list = await api('GET', '/api/mcp-tokens');
+  $('#aiCard').innerHTML = `<h3>AI assistants (MCP)</h3>
+    <p class="small muted">Give Claude, ChatGPT or Gemini a private link so it can work with your orders, products, customers, stock and accounts. Paste the link as a custom connector / MCP server URL.</p>
+    ${newLink ? `<div class="card" style="margin:12px 0"><b>Copy this link now — it won't be shown again:</b><input readonly value="${esc(newLink)}" onclick="this.select()" style="margin-top:6px"></div>` : ''}
+    ${list.map((t) => `<div class="row" style="display:flex;gap:12px;align-items:center;padding:8px 0;border-top:1px solid #0001">
+      <div style="flex:1"><b>${esc(t.name)}</b><div class="small muted">Made ${fdate(new Date(t.created).toISOString())} · ${t.lastUsed ? 'last used ' + fdate(new Date(t.lastUsed).toISOString()) : 'never used'}</div></div>
+      <label class="small" style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" style="width:auto" ${t.permissions.createOrders ? 'checked' : ''} onchange="aiPerm('${t.id}', this.checked)"> Can create orders</label>
+      <button class="btn" onclick="aiRevoke('${t.id}')">Revoke</button></div>`).join('') || '<p class="small muted">No AI connected yet.</p>'}
+    <div class="form" style="margin-top:12px">${field('Name (e.g. "Claude", "ChatGPT")', '<input id="ai_name">')}
+    ${field('&nbsp;', '<label class="small" style="display:flex;gap:6px;align-items:center"><input id="ai_orders" type="checkbox" style="width:auto"> Can create orders</label>')}</div>
+    <div class="foot"><button class="btn primary" onclick="aiCreate()">+ Make AI link</button></div>`;
+}
+async function aiCreate() {
+  const t = await api('POST', '/api/mcp-tokens', { name: $('#ai_name').value, createOrders: $('#ai_orders').checked });
+  aiAccess(`${location.origin}/mcp/${t.token}`);
+}
+async function aiPerm(id, on) { await api('PUT', '/api/mcp-tokens/' + id, { createOrders: on }); toast(on ? 'Can now create orders' : 'Order creation turned off'); }
+async function aiRevoke(id) { if (confirmDo('Revoke this AI link? It stops working straight away.')) { await api('DELETE', '/api/mcp-tokens/' + id); aiAccess(); } }
 async function saveSettings() {
   const b = {}; $$('[id^=s_]').forEach((el) => (b[el.id.slice(2)] = el.type === 'number' ? +el.value || 1 : el.value));
   S.settings = await api('PUT', '/api/settings', b); toast('Settings saved');
