@@ -21,6 +21,22 @@ footer{text-align:center;margin-top:36px}
 .line{display:flex;justify-content:space-between;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding:8px 0}
 .qty{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 body{padding-bottom:90px}
+.products{grid-template-columns:repeat(auto-fill,minmax(min(230px,100%),1fr))}
+.prices li>span:last-child{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.cartbar{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+@media (max-width:600px){
+  body{padding:16px 12px 90px}
+  header img{width:150px}
+  .cats{flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;margin:14px -12px;padding:0 12px 4px;-webkit-overflow-scrolling:touch}
+  .cats button{flex:none;white-space:nowrap}
+  .products{grid-template-columns:1fr}
+  .prices li{font-size:15px}
+  .prices .add{padding:8px 14px;font-size:14px}
+  .drawer .panel{width:100%;padding:16px}
+  .drawer input,.drawer textarea{font-size:16px;width:100%;box-sizing:border-box}
+  .qty .btn{padding:8px 12px}
+  .cartbar{gap:10px}
+}
 </style></head>
 <body><div class="wrap">
 <header><img src="/logo-wreath.png" alt="The Christmas Baker"><p id="tag"></p></header>
