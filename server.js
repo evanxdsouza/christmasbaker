@@ -275,6 +275,21 @@ app.get('/api/track/:code', (req, res) => {
   res.json({ number: o.number, customerName: o.customerName.split(' ')[0], status: o.status, history: o.history, deliveryDate: o.deliveryDate, deliveryType: o.deliveryType, items: o.items.map((i) => ({ description: i.description, qty: i.qty })), business: { name: s.businessName, phone: s.phone, instagram: s.instagram }, statuses: STATUSES });
 });
 
+// ---- public catalog (customer facing) ------------------------------------
+// Only customer-safe fields: no costs, recipes or stock counts.
+app.get('/api/catalog', (req, res) => {
+  const s = db().settings;
+  const products = db().products
+    .filter((p) => p.active !== false)
+    .map((p) => ({
+      id: p.id, name: p.name, category: p.category || 'Other', description: p.description || '', image: p.image || '',
+      leadDays: p.leadDays || 0,
+      soldOut: p.stock !== null && p.stock !== undefined && p.stock !== '' && Number(p.stock) <= 0,
+      variants: p.variants.map((v) => ({ label: v.label, price: v.price })),
+    }));
+  res.json({ business: { name: s.businessName, tagline: s.tagline, phone: s.phone, instagram: s.instagram, currency: s.currency }, products });
+});
+
 // ---- dashboard / reports -------------------------------------------------
 app.get('/api/stats', (req, res) => {
   const { orders, expenses, ingredients, products } = db();
@@ -304,5 +319,6 @@ app.get('/api/backup', (req, res) => {
 
 // Public tracking page + SPA fallback
 app.get('/track', (req, res) => res.sendFile(path.join(__dirname, 'public', 'track.html')));
+app.get('/catalog', (req, res) => res.sendFile(path.join(__dirname, 'public', 'catalog.html')));
 
 app.listen(PORT, () => console.log(`The Christmas Baker is running on http://localhost:${PORT}`));

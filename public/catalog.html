@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catalog · The Christmas Baker</title>
+<link rel="icon" href="/logo-wreath.png">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+body{padding:24px 16px 60px}.wrap{width:min(1100px,100%);margin:0 auto}
+header{text-align:center}header img{width:200px;max-width:60%}header p{color:var(--muted);margin:4px 0 0}
+.cats{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:20px 0}
+.cats button{border:1px solid var(--line);background:var(--paper);border-radius:99px;padding:6px 16px;font:inherit;cursor:pointer}
+.cats button.on{background:var(--green);color:#fff;border-color:var(--green)}
+.prices{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.prices li{display:flex;justify-content:space-between;gap:10px;font-size:14px}.prices b{color:var(--red)}
+footer{text-align:center;margin-top:36px}
+</style></head>
+<body><div class="wrap">
+<header><img src="/logo-wreath.png" alt="The Christmas Baker"><p id="tag"></p></header>
+<div class="cats" id="cats"></div>
+<div class="grid products" id="list"></div>
+<p class="muted" id="empty" hidden style="text-align:center">Nothing to show yet. Please check back soon!</p>
+<footer class="small muted" id="foot"></footer>
+</div>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let data,cat='All';
+const money=n=>data.business.currency+Number(n).toLocaleString('en-IN');
+function render(){
+  const cats=['All',...new Set(data.products.map(p=>p.category))];
+  document.getElementById('cats').innerHTML=cats.length>2?cats.map(c=>`<button class="${c===cat?'on':''}" data-c="${esc(c)}">${esc(c)}</button>`).join(''):'';
+  const items=data.products.filter(p=>cat==='All'||p.category===cat);
+  document.getElementById('empty').hidden=data.products.length>0;
+  document.getElementById('list').innerHTML=items.map(p=>`<div class="card product">
+    <div class="img" ${p.image?`style="background-image:url('${encodeURI(p.image)}')"`:''}>${p.image?'':'🎄'}</div>
+    <div class="body"><div class="name">${esc(p.name)}</div>
+    <div class="chips"><span class="chip">${esc(p.category)}</span>${p.soldOut?'<span class="chip red">Sold out</span>':''}${p.leadDays?`<span class="chip gold">Order ${p.leadDays} day${p.leadDays>1?'s':''} ahead</span>`:''}</div>
+    <div class="desc">${esc(p.description)}</div>
+    <ul class="prices">${p.variants.map(v=>`<li><span>${esc(v.label)}</span><b>${money(v.price)}</b></li>`).join('')}</ul></div></div>`).join('');
+}
+document.getElementById('cats').onclick=e=>{const c=e.target.dataset.c;if(c){cat=c;render()}};
+fetch('/api/catalog').then(r=>r.json()).then(d=>{
+  data=d;const b=d.business;
+  document.title='Catalog · '+b.name;
+  document.getElementById('tag').textContent=b.tagline||'';
+  document.getElementById('foot').innerHTML=[b.phone&&`To order, call/WhatsApp ${esc(b.phone)}`,b.instagram&&`Instagram ${esc(b.instagram)}`].filter(Boolean).join(' · ')+`<br><a href="/track">Track an existing order</a>`;
+  render();
+});
+</script></body></html>
