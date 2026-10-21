@@ -1,7 +1,7 @@
 /* The Christmas Baker — single-page admin app (vanilla JS, no build step) */
 const STATUSES = ['New', 'Confirmed', 'Baking', 'Ready', 'Out for delivery', 'Delivered', 'Cancelled'];
 const FLOW = STATUSES.slice(0, 6);
-const STATUS_CHIP = { New: 'gold', Confirmed: '', Baking: 'gold', Ready: '', 'Out for delivery': 'gold', Delivered: '', Cancelled: 'grey' };
+const STATUS_CHIP = { New: 'gold', Confirmed: '', Baking: 'gold', Ready: '', 'Out for delivery': 'gold', Delivered: '', Cancelled: 'grey', Pending: 'red' };
 const CATEGORIES = ['Cakes', 'Cookies', 'Pastries', 'Sweets', 'Gift Boxes', 'Savouries', 'Other'];
 const ASSET_TAGS = ['Logo', 'Product photo', 'Packaging', 'Social media', 'Invoice / documents', 'General'];
 const EXPENSE_CATS = ['Ingredients', 'Packaging', 'Delivery', 'Marketing', 'Gas & utilities', 'Equipment', 'Other'];
@@ -61,7 +61,7 @@ const empty = (icon, msg, btn = '') => `<div class="empty"><div class="big">${ic
 // ---------- routing ----------
 const ROUTES = [
   { id: 'dashboard', label: 'Dashboard', icon: '🎄', render: dashboard },
-  { id: 'orders', label: 'Orders', icon: '🧾', render: orders, badge: () => S.orders.filter((o) => o.status === 'New').length },
+  { id: 'orders', label: 'Orders', icon: '🧾', render: orders, badge: () => S.orders.filter((o) => o.status === 'New' || o.status === 'Pending').length },
   { id: 'products', label: 'Products', icon: '🍰', render: products },
   { id: 'recipes', label: 'Recipes & costing', icon: '🥣', render: recipes },
   { id: 'assets', label: 'Assets', icon: '🖼️', render: assets },
@@ -90,7 +90,7 @@ async function refresh() { await loadAll(); route(); }
 async function dashboard() {
   const st = await api('GET', '/api/stats');
   setActions('<button class="btn primary" onclick="orderForm()">+ New order</button>');
-  const upcoming = S.orders.filter((o) => !['Delivered', 'Cancelled'].includes(o.status)).sort((a, b) => (a.deliveryDate || '9999').localeCompare(b.deliveryDate || '9999')).slice(0, 6);
+  const upcoming = S.orders.filter((o) => !['Delivered', 'Cancelled', 'Pending'].includes(o.status)).sort((a, b) => (a.deliveryDate || '9999').localeCompare(b.deliveryDate || '9999')).slice(0, 6);
   const months = Object.entries(st.months).sort().slice(-6);
   const max = Math.max(1, ...months.map((m) => m[1]));
   $('#view').innerHTML = `
@@ -123,7 +123,9 @@ function orders() {
   const u = S.ui;
   setActions(`<div class="seg"><button class="${u.orderView === 'list' ? 'on' : ''}" onclick="S.ui.orderView='list';route()">List</button><button class="${u.orderView === 'board' ? 'on' : ''}" onclick="S.ui.orderView='board';route()">Board</button></div><button class="btn primary" onclick="orderForm()">+ New order</button>`);
   const q = u.q.toLowerCase();
-  let list = S.orders.filter((o) => !q || [o.customerName, o.number, o.phone, o.trackCode].some((v) => (v || '').toLowerCase().includes(q)));
+  const match = (o) => !q || [o.customerName, o.number, o.phone, o.trackCode].some((v) => (v || '').toLowerCase().includes(q));
+  const pending = S.orders.filter((o) => o.status === 'Pending' && match(o)).sort((a, b) => a.created - b.created);
+  let list = S.orders.filter((o) => o.status !== 'Pending' && (!q || [o.customerName, o.number, o.phone, o.trackCode].some((v) => (v || '').toLowerCase().includes(q))));
   if (u.orderView === 'list') {
     const f = u.orderFilter;
     list = list.filter((o) => f === 'all' || (f === 'open' ? !['Delivered', 'Cancelled'].includes(o.status) : f === 'unpaid' ? o.status !== 'Cancelled' && totals(o).balance > 0 : o.status === f));
@@ -132,7 +134,7 @@ function orders() {
   const toolbar = `<div class="toolbar"><input id="q" placeholder="Search name, phone, order no…" value="${esc(u.q)}">
     ${u.orderView === 'list' ? `<select id="of">${[['open', 'Open orders'], ['all', 'All orders'], ['unpaid', 'Payment pending'], ...STATUSES.map((s) => [s, s])].map(([v, l]) => `<option value="${v}" ${u.orderFilter === v ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}</div>`;
   let body;
-  if (!S.orders.length) body = empty('🧾', 'No orders yet — add your first one!', '<button class="btn primary" onclick="orderForm()">+ New order</button>');
+  if (!S.orders.some((o) => o.status !== 'Pending')) body = pending.length ? '' : empty('🧾', 'No orders yet — add your first one!', '<button class="btn primary" onclick="orderForm()">+ New order</button>');
   else if (u.orderView === 'board') {
     body = `<div class="board">${STATUSES.filter((s) => s !== 'Cancelled').map((s) => {
       const c = list.filter((o) => o.status === s);
@@ -141,13 +143,15 @@ function orders() {
   } else {
     body = list.length ? `<div class="card table-wrap" style="padding:6px"><table><tr><th>Order</th><th>Customer</th><th>Delivery</th><th>Status</th><th>Payment</th><th class="r">Total</th></tr>${list.map((o) => `<tr class="click" onclick="orderDetail('${o.id}')"><td><b>${o.number}</b><div class="small muted">${fdate(o.created)}</div></td><td>${esc(o.customerName)}<div class="small muted">${esc(o.phone)}</div></td><td>${fdate(o.deliveryDate)}<div class="small muted">${esc(o.deliveryType)}</div></td><td><span class="chip ${STATUS_CHIP[o.status]}">${o.status}</span></td><td>${payChip(o)}</td><td class="r"><b>${money(totals(o).total)}</b></td></tr>`).join('')}</table></div>` : empty('🔍', 'Nothing matches.');
   }
-  $('#view').innerHTML = toolbar + body;
+  const banner = pending.length ? `<div class="card" style="border-color:var(--red);margin-bottom:16px"><h3 style="color:var(--red)">Requests from the catalog (${pending.length})</h3><p class="muted small">Sent from the public catalog with a temporary id. Confirm one to turn it into a regular order.</p><table>${pending.map((o) => `<tr><td><b>${o.number}</b><div class="small muted">${fdate(o.created)}</div></td><td>${esc(o.customerName)}${o.notes ? `<div class="small muted">📝 ${esc(o.notes)}</div>` : ''}</td><td class="small">${o.items.map((i) => `${i.qty}× ${esc(i.description)}`).join('<br>')}</td><td class="r"><b>${money(totals(o).total)}</b></td><td class="r" style="white-space:nowrap"><button class="btn sm green" onclick="confirmOrder('${o.id}')">Confirm order</button> <button class="btn sm" onclick="orderForm('${o.id}')">Edit order</button> <button class="btn sm danger" onclick="delOrder('${o.id}')">Delete order</button></td></tr>`).join('')}</table></div>` : '';
+  $('#view').innerHTML = banner + toolbar + body;
   $('#q').oninput = (e) => { S.ui.q = e.target.value; const pos = e.target.selectionStart; orders(); const n = $('#q'); n.focus(); n.setSelectionRange(pos, pos); };
   if ($('#of')) $('#of').onchange = (e) => { S.ui.orderFilter = e.target.value; orders(); };
 }
 
 function statusSteps(o, hist = o.history) {
   if (o.status === 'Cancelled') return '<p><span class="chip grey">Cancelled</span></p>';
+  if (o.status === 'Pending') return '<p><span class="chip red">Waiting for your confirmation</span></p>';
   const idx = FLOW.indexOf(o.status);
   return `<div class="steps">${FLOW.map((s, i) => `<div class="step ${i < idx ? 'done' : i === idx ? 'done now' : ''}">${s}${(hist.find((h) => h.status === s) || {}).at ? `<div class="small muted" style="font-weight:400">${fdate(new Date(hist.find((h) => h.status === s).at).toISOString())}</div>` : ''}</div>`).join('')}</div>`;
 }
@@ -161,7 +165,7 @@ function orderDetail(id) {
   const next = FLOW[FLOW.indexOf(o.status) + 1];
   const msg = `Hi ${o.customerName.split(' ')[0]}! 🎄 Your order ${o.number} from ${S.settings.businessName} is now *${o.status}*.` + (o.deliveryDate ? ` Delivery: ${fdate(o.deliveryDate)}.` : '') + ` Track it here: ${trackUrl(o)}`;
   modal(`
-  <div style="display:flex;justify-content:space-between;gap:10px;align-items:start"><div><h2>${o.number} · ${esc(o.customerName)}</h2><div class="muted small">Placed ${fdate(o.created)} · via ${esc(o.source)} · Track code <b>${o.trackCode}</b></div></div><button class="btn sm" onclick="closeModal()">✕</button></div>
+  <div style="display:flex;justify-content:space-between;gap:10px;align-items:start"><div><h2>${o.number} · ${esc(o.customerName)}</h2><div class="muted small">Placed ${fdate(o.created)} · via ${esc(o.source)}${o.trackCode ? ` · Track code <b>${o.trackCode}</b>` : ''}</div></div><button class="btn sm" onclick="closeModal()">✕</button></div>
   ${statusSteps(o)}
   <div class="grid cols2" style="gap:12px;margin:8px 0">
     <div><label>Contact</label>${esc(o.phone) || '—'}<div class="small muted">${esc(o.address) || 'No address'}</div></div>
@@ -170,7 +174,7 @@ function orderDetail(id) {
   <table><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th></tr>${o.items.map((i) => `<tr><td>${esc(i.description)}</td><td class="r">${i.qty}</td><td class="r">${money(i.unitPrice)}</td><td class="r">${money(i.qty * i.unitPrice)}</td></tr>`).join('')}</table>
   <div class="totals"><div><span>Subtotal</span><span>${money(t.sub)}</span></div>${o.shipping ? `<div><span>Shipping</span><span>${money(o.shipping)}</span></div>` : ''}${o.discount ? `<div><span>Discount</span><span>-${money(o.discount)}</span></div>` : ''}<div class="grand"><span>Total</span><span>${money(t.total)}</span></div><div><span>Paid</span><span>${money(t.paid)}</span></div><div style="color:${t.balance > 0 ? 'var(--red)' : 'var(--green)'}"><b>Balance</b><b>${money(t.balance)}</b></div></div>
   <hr>
-  <div class="foot" style="justify-content:flex-start">
+  ${o.status === 'Pending' ? `<div class="foot" style="justify-content:flex-start"><button class="btn green" onclick="confirmOrder('${o.id}')">Confirm order</button><button class="btn" onclick="orderForm('${o.id}')">Edit order</button><button class="btn danger" onclick="delOrder('${o.id}')">Delete order</button></div>` : `<div class="foot" style="justify-content:flex-start">
     ${next ? `<button class="btn green" onclick="setStatus('${o.id}','${next}')">Mark as ${next} →</button>` : ''}
     <select style="width:auto" onchange="setStatus('${o.id}',this.value)">${STATUSES.map((s) => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
     ${t.balance > 0 && o.status !== 'Cancelled' ? `<button class="btn" onclick="markPaid('${o.id}')">💰 Mark fully paid</button>` : ''}
@@ -182,7 +186,7 @@ function orderDetail(id) {
     <button class="btn" onclick="navigator.clipboard.writeText('${trackUrl(o)}').then(()=>toast('Tracking link copied'))">🔗 Copy tracking link</button>
     <button class="btn" onclick="orderForm('${o.id}')">Edit</button>
     <button class="btn danger" onclick="delOrder('${o.id}')">Delete</button>
-  </div>`, { wide: true });
+  </div>`}`, { wide: true });
 }
 async function setStatus(id, status) {
   await api('PUT', '/api/orders/' + id, { status });
@@ -192,6 +196,10 @@ async function markPaid(id) {
   const o = S.orders.find((x) => x.id === id);
   await api('PUT', '/api/orders/' + id, { amountPaid: totals(o).total });
   await loadAll(); route(); orderDetail(id); toast('Marked paid');
+}
+async function confirmOrder(id) {
+  const o = await api('POST', `/api/orders/${id}/confirm`);
+  closeModal(); await refresh(); toast(`Confirmed as ${o.number}`);
 }
 async function delOrder(id) {
   if (!confirmDo('Delete this order permanently? (Use "Cancelled" status to keep a record.)')) return;

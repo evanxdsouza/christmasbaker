@@ -17,7 +17,7 @@ Data lives in `data/db.json`, uploads in `uploads/` (Settings → Download backu
 - **Automatic prices** – tick "Look up price automatically" on an ingredient and its cost is refreshed daily (or on demand) using a free AI API: **Groq** (web search, so today's shop prices; `groq/compound`, falling back to `openai/gpt-oss-120b` with browser search) or **Hack Club AI** (`ai.hackclub.com`: its Exa web search finds shop listings, `qwen/qwen3-32b` reads them; ~1¢ per ingredient, switchable off for AI estimates only). Prices more than 4× away from the current one are reported, not applied
 - **Accounts** – simple summary (income, expenses, profit, cash, what customers owe) with a Double-entry view: journal generated from orders and expenses, trial balance, ledgers, P&L, balance sheet, manual journal entries (owner's money, loans) and CSV export
 - **/track** – public page customers use with their tracking code
-- **/catalog** – public catalog of visible products with sizes and prices (no costs or stock counts); hide a product to remove it
+- **/catalog** – public catalog with a cart. "Order on WhatsApp" saves a request with a temporary id (TMP-0001…) and opens WhatsApp with the order written out; it shows at the top of Orders where you can Confirm (becomes a regular ORD- order), Edit or Delete it. Costs, recipes and stock counts are never exposed; hide a product to remove it
 - **Invoices** – `/api/orders/:id/invoice.pdf`, numbered TCB-0001…, FSSAI number and thank-you text from Settings
 
 ## AI assistants (MCP)

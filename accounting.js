@@ -33,7 +33,7 @@ const entry = (e) => ({ ...e, lines: e.lines.filter((l) => l.debit > 0 || l.cred
 function journal({ orders, expenses, journal: manual = [] }) {
   const out = [];
   for (const o of orders) {
-    if (o.status === 'Cancelled') continue;
+    if (o.status === 'Cancelled' || o.status === 'Pending') continue;
     const t = orderTotals(o);
     if (o.status !== 'Delivered') {
       // Money taken before delivery is owed to the customer until the order is handed over

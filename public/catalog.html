@@ -15,7 +15,7 @@ header{text-align:center}header img{width:200px;max-width:60%}header p{color:var
 footer{text-align:center;margin-top:36px}
 .prices li{align-items:center}.prices .add{margin-left:8px}
 .cartbar{position:fixed;left:0;right:0;bottom:0;background:var(--green);color:#fff;padding:12px 16px;display:flex;justify-content:center;gap:14px;align-items:center;z-index:5}
-.cartbar[hidden],.drawer[hidden]{display:none}
+.cartbar[hidden],.drawer[hidden],#doneView[hidden],#cartView[hidden]{display:none!important}
 .drawer{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10;display:flex;justify-content:flex-end}
 .drawer .panel{background:var(--paper);width:min(420px,100%);height:100%;overflow:auto;padding:18px;display:flex;flex-direction:column;gap:12px}
 .line{display:flex;justify-content:space-between;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding:8px 0}
@@ -31,14 +31,17 @@ body{padding-bottom:90px}
 </div>
 <div class="cartbar" id="bar" hidden><span id="barTxt"></span><button class="btn" id="open">View cart</button></div>
 <div class="drawer" id="drawer" hidden><div class="panel">
+  <div id="doneView" hidden style="display:flex;flex-direction:column;gap:12px"><h2>Almost done!</h2><div id="doneIdBox" class="card" style="text-align:center"><div class="muted small">Your temporary order ID</div><div id="doneId" style="font:700 34px 'Cormorant Garamond',serif;color:var(--red)"></div></div><p id="doneErr" style="color:var(--red)"></p><p>Send the pre-filled message on WhatsApp to place your order. We'll confirm it with you and give you a regular order number.</p><a class="btn primary" id="wa" target="_blank" rel="noopener" style="justify-content:center">Open WhatsApp to send your order</a><button class="btn" id="closeDone">Close</button></div>
+  <div id="cartView" style="display:flex;flex-direction:column;gap:12px">
   <div style="display:flex;justify-content:space-between;align-items:center"><h2>Your cart</h2><button class="btn sm" id="close">✕</button></div>
   <div id="lines"></div>
   <div class="line" style="font-weight:600"><span>Total</span><span id="total"></span></div>
   <label>Your name</label><input id="cname" placeholder="Name">
   <label>Delivery address / notes (optional)</label><textarea id="cnote" rows="2"></textarea>
   <button class="btn primary" id="order" style="justify-content:center">Order this by sending a message on WhatsApp</button>
-  <p class="small muted" id="hint">This opens WhatsApp with your order written out. Nothing is placed until you send the message.</p>
+  <p class="small muted" id="hint">You'll get a temporary order ID and WhatsApp opens with your order written out. Send the message to place it.</p>
   <button class="btn sm danger" id="clear">Empty cart</button>
+  </div>
 </div></div>
 <script>
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -66,25 +69,40 @@ function renderCart(){
   $('bar').hidden=!n;$('barTxt').textContent=`${n} item${n>1?'s':''} · ${money(t)}`;
   $('lines').innerHTML=L.length?L.map(l=>`<div class="line"><span>${esc(l.name)}<br><span class="small muted">${esc(l.label)} · ${money(l.price)}</span></span><span class="qty"><button class="btn sm" data-d="-1" data-k="${esc(l.p.id)}|${l.vi}">−</button><b>${l.q}</b><button class="btn sm" data-d="1" data-k="${esc(l.p.id)}|${l.vi}">+</button></span></div>`).join(''):'<p class="muted">Your cart is empty.</p>';
   $('total').textContent=money(t);$('order').disabled=!L.length;
-  if(!L.length)$('drawer').hidden=true;
+  if(!L.length&&$('doneView').hidden)$('drawer').hidden=true;
   save();
 }
 function add(p,v,d){const c=cart.find(x=>x.p===p&&x.v===v);const pr=data.products.find(x=>x.id===p);if(c){c.q+=d}else if(d>0){cart.push({p,v,q:d})}cart=cart.filter(x=>x.q>0);renderCart()}
 function waNumber(){let n=String(data.business.phone||'').replace(/\D/g,'');if(n.length===10)n='91'+n;else if(n.length===11&&n[0]==='0')n='91'+n.slice(1);return n}
-function message(){
+function message(id){
   const L=lines(),t=L.reduce((a,l)=>a+l.q*l.price,0),name=$('cname').value.trim(),note=$('cnote').value.trim();
-  return [`Hi ${data.business.name}! 🎄 I'd like to order:`,'',...L.map(l=>`• ${l.q} × ${l.name} (${l.label}) — ${money(l.q*l.price)}`),'',`Total: ${money(t)}`,name?`Name: ${name}`:false,note?`Delivery / notes: ${note}`:false,'','Please confirm availability and delivery date. Thank you!'].filter(x=>x!==false&&x!==undefined&&x!==null).join('\n');
+  return [`Hi ${data.business.name}! 🎄 I'd like to order:`,id?`Order ID: ${id}`:false,'',...L.map(l=>`• ${l.q} × ${l.name} (${l.label}) — ${money(l.q*l.price)}`),'',`Total: ${money(t)}`,name?`Name: ${name}`:false,note?`Delivery / notes: ${note}`:false,'','Please confirm availability and delivery date. Thank you!'].filter(x=>x!==false&&x!==undefined&&x!==null).join('\n');
 }
 $('list').onclick=e=>{const b=e.target.closest('.add');if(b){add(b.dataset.p,+b.dataset.v,1);b.textContent='Added ✓';setTimeout(()=>b.textContent='Add',900)}};
 $('lines').onclick=e=>{const b=e.target.closest('[data-d]');if(b){const[k,v]=b.dataset.k.split('|');add(k,+v,+b.dataset.d)}};
 $('open').onclick=()=>$('drawer').hidden=false;$('close').onclick=()=>$('drawer').hidden=true;
 $('drawer').onclick=e=>{if(e.target===$('drawer'))$('drawer').hidden=true};
 $('clear').onclick=()=>{cart=[];renderCart()};
-$('order').onclick=()=>{
-  const n=waNumber();
-  if(!n){$('hint').textContent='Sorry, ordering by WhatsApp isn\'t set up yet. Please contact us on Instagram.';return}
-  window.open(`https://wa.me/${n}?text=${encodeURIComponent(message())}`,'_blank','noopener');
+const waUrl=id=>`https://wa.me/${waNumber()}?text=${encodeURIComponent(message(id))}`;
+$('order').onclick=async()=>{
+  if(!waNumber()){$('hint').textContent='Sorry, ordering by WhatsApp isn\'t set up yet. Please contact us on Instagram.';return}
+  const L=lines();if(!L.length)return;
+  const btn=$('order');btn.disabled=true;
+  let id='',err='';
+  try{
+    const r=await fetch('/api/catalog/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('cname').value,note:$('cnote').value,items:L.map(l=>({productId:l.p.id,variant:l.vi,qty:l.q}))})});
+    const j=await r.json();if(!r.ok)throw new Error(j.error||'failed');id=j.number;
+  }catch(e){err=e.message}
+  const url=waUrl(id);
+  $('cartView').hidden=true;$('doneView').hidden=false;
+  $('doneId').textContent=id||'';$('doneIdBox').hidden=!id;
+  $('doneErr').textContent=id?'':(err&&err!=='failed'?err+' You can still send your order on WhatsApp.':'We could not save your order, but you can still send it on WhatsApp.');
+  $('wa').href=url;
+  if(id){cart=[];renderCart()}
+  btn.disabled=false;
+  window.open(url,'_blank','noopener');
 };
+$('closeDone').onclick=()=>{$('drawer').hidden=true;$('doneView').hidden=true;$('cartView').hidden=false;renderCart()};
 document.getElementById('cats').onclick=e=>{const c=e.target.dataset.c;if(c){cat=c;render()}};
 fetch('/api/catalog').then(r=>r.json()).then(d=>{
   data=d;const b=d.business;

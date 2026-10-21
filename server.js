@@ -42,13 +42,19 @@ function trackCode() {
 }
 
 function nextOrderNumber() {
-  const n = db().orders.reduce((m, o) => Math.max(m, parseInt(String(o.number).replace(/\D/g, '')) || 0), 0) + 1;
+  const n = db().orders.reduce((m, o) => Math.max(m, /^ORD-/.test(o.number) ? parseInt(o.number.replace(/\D/g, '')) || 0 : 0), 0) + 1;
   return 'ORD-' + String(n).padStart(4, '0');
+}
+
+// Catalog requests get a temporary id (TMP-0001…) until the baker confirms them.
+function nextTempNumber() {
+  const n = db().orders.reduce((m, o) => Math.max(m, /^TMP-/.test(o.number) ? parseInt(o.number.replace(/\D/g, '')) || 0 : 0), 0) + 1;
+  return 'TMP-' + String(n).padStart(4, '0');
 }
 
 // Find or create a customer from an order so the customer book builds itself.
 function upsertCustomer(o) {
-  if (!o.customerName) return;
+  if (!o.customerName || o.status === 'Pending') return;
   let c = db().customers.find((x) => (o.customerId && x.id === o.customerId) || (o.phone && x.phone === o.phone) || x.name.toLowerCase() === o.customerName.toLowerCase());
   if (!c) {
     c = { id: store.uid(), name: o.customerName, phone: o.phone || '', address: o.address || '', notes: '', created: Date.now() };
@@ -233,12 +239,62 @@ app.put('/api/orders/:id', (req, res) => {
   for (const k of ['customerName', 'phone', 'address', 'deliveryDate', 'deliveryType', 'notes', 'source']) if (k in b) o[k] = b[k];
   for (const k of ['shipping', 'discount', 'amountPaid']) if (k in b) o[k] = Number(b[k]) || 0;
   if ('items' in b) o.items = cleanItems(b.items);
-  if (b.status && b.status !== o.status && STATUSES.includes(b.status)) {
+  if (b.status && o.status !== 'Pending' && b.status !== o.status && STATUSES.includes(b.status)) { // Pending orders only leave that state through /confirm
     o.status = b.status;
     o.history.push({ status: b.status, at: Date.now() });
     if (prevStatus === 'New' && b.status === 'Confirmed') adjustStock(o, -1);
     if (b.status === 'Cancelled' && prevStatus !== 'New' && prevStatus !== 'Cancelled') adjustStock(o, +1);
   }
+  upsertCustomer(o);
+  store.save();
+  res.json(o);
+});
+
+// A customer sends their cart from the public catalog. Prices come from the product list, never the browser.
+// It is stored as a Pending order with a temporary id until the baker confirms it.
+const catalogHits = new Map();
+const MAX_PENDING = 100;
+app.post('/api/catalog/order', (req, res) => {
+  const now = Date.now();
+  const hits = (catalogHits.get(req.ip) || []).filter((t) => now - t < 3600e3);
+  if (hits.length >= 10) return res.status(429).json({ error: 'Too many orders from this device. Please message us directly.' });
+  if (db().orders.filter((o) => o.status === 'Pending').length >= MAX_PENDING) return res.status(503).json({ error: 'We cannot take new requests right now. Please message us directly.' });
+  const b = req.body || {};
+  const asked = Array.isArray(b.items) ? b.items.slice(0, 30) : [];
+  const items = [];
+  for (const a of asked) {
+    const p = db().products.find((x) => x.id === a.productId && x.active !== false);
+    const v = p && p.variants[Number(a.variant)];
+    const qty = Math.floor(Number(a.qty));
+    if (!v || !(qty >= 1) || qty > 50) continue;
+    if (p.stock !== null && p.stock !== undefined && p.stock !== '' && Number(p.stock) <= 0) continue;
+    items.push({ productId: p.id, name: p.name, description: `${p.name} ${v.label}`, qty, unitPrice: v.price, cost: v.cost || 0 });
+  }
+  if (!items.length) return res.status(400).json({ error: 'Your cart is empty or those items are no longer available.' });
+  const clip = (x, n) => String(x || '').trim().slice(0, n);
+  const o = {
+    id: store.uid(), number: nextTempNumber(), trackCode: '', created: now,
+    customerName: clip(b.name, 80) || 'Catalog customer', phone: '', address: '',
+    items, shipping: 0, discount: 0, amountPaid: 0, deliveryDate: '', deliveryType: 'Delivery',
+    notes: clip(b.note, 500), source: 'WhatsApp', status: 'Pending', history: [{ status: 'Pending', at: now }],
+  };
+  db().orders.push(o);
+  hits.push(now); catalogHits.set(req.ip, hits);
+  store.save();
+  res.status(201).json({ number: o.number, total: orderTotals(o).total });
+});
+
+// Baker confirms a Pending request: it gets a regular order id, a tracking code and a customer record.
+app.post('/api/orders/:id/confirm', (req, res) => {
+  const o = db().orders.find((x) => x.id === req.params.id);
+  if (!o) return res.sendStatus(404);
+  if (o.status !== 'Pending') return res.status(400).json({ error: 'This order is already confirmed' });
+  o.requestId = o.number;
+  o.number = nextOrderNumber();
+  o.trackCode = trackCode();
+  o.status = 'Confirmed';
+  o.history.push({ status: 'Confirmed', at: Date.now() });
+  adjustStock(o, -1);
   upsertCustomer(o);
   store.save();
   res.json(o);
@@ -253,6 +309,7 @@ app.delete('/api/orders/:id', (req, res) => {
 app.get('/api/orders/:id/invoice.pdf', (req, res) => {
   const o = db().orders.find((x) => x.id === req.params.id);
   if (!o) return res.sendStatus(404);
+  if (o.status === 'Pending') return res.status(400).send('Confirm this order before invoicing it');
   if (!o.invoiceNo) {
     const s = db().settings;
     o.invoiceNo = `${s.invoicePrefix || ''}${String(s.nextInvoiceNo || 1).padStart(4, '0')}`;
@@ -267,7 +324,7 @@ app.get('/api/orders/:id/invoice.pdf', (req, res) => {
 
 // ---- public order tracking (customer facing) -----------------------------
 app.get('/api/track/:code', (req, res) => {
-  const o = db().orders.find((x) => x.trackCode === req.params.code.toUpperCase().trim() || x.number.toLowerCase() === req.params.code.toLowerCase().trim());
+  const o = db().orders.find((x) => x.status !== 'Pending' && (x.trackCode === req.params.code.toUpperCase().trim() || x.number.toLowerCase() === req.params.code.toLowerCase().trim()));
   const phone = String(req.query.phone || '').replace(/\D/g, '');
   // Order numbers are guessable, so those need the last 4 phone digits; the random code is enough on its own.
   if (!o || (o.number.toLowerCase() === req.params.code.toLowerCase() && !(phone && o.phone.replace(/\D/g, '').endsWith(phone.slice(-4))))) return res.status(404).json({ error: 'Order not found' });
@@ -292,7 +349,8 @@ app.get('/api/catalog', (req, res) => {
 
 // ---- dashboard / reports -------------------------------------------------
 app.get('/api/stats', (req, res) => {
-  const { orders, expenses, ingredients, products } = db();
+  const { expenses, ingredients, products } = db();
+  const orders = db().orders.filter((o) => o.status !== 'Pending');
   const live = orders.filter((o) => o.status !== 'Cancelled');
   const totalOf = (o) => orderTotals(o).total;
   const revenue = live.reduce((s, o) => s + totalOf(o), 0);
